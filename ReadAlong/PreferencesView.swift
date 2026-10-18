@@ -14,6 +14,7 @@ struct PreferencesView: View {
     @State private var isChildModeExpanded = false
     @State private var isTypographyExpanded = false
     @State private var isLocalWhisperExpanded = false
+    @State private var isAboutExpanded = false
 
     var body: some View {
         Form {
@@ -153,8 +154,49 @@ struct PreferencesView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                         .onTapGesture { isLocalWhisperExpanded.toggle() }
+                }
+
+                DisclosureGroup(isExpanded: $isAboutExpanded) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "book.pages.fill")
+                                .font(.title2)
+                                .foregroundStyle(brandColor)
+                                .frame(width: 42, height: 42)
+                                .background(brandColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("ReadAlong · 英语伴读")
+                                    .font(.headline)
+                                Text("版本 \(appVersion)（构建 \(buildNumber)）")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("更新日志")
+                                .font(.subheadline.weight(.semibold))
+                            Text("版本 2.4")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(brandColor)
+                            changelogRow("全新名称：ReadAlong · 英语伴读")
+                            changelogRow("移除大模型服务与远程翻译回退")
+                            changelogRow("中文翻译改为仅使用苹果本地翻译")
+                            changelogRow("保留本地 Whisper 与系统语音识别")
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+                } label: {
+                    Label("关于与版本信息", systemImage: "info.circle")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture { isAboutExpanded.toggle() }
+                }
             }
-        }
         .formStyle(.grouped)
         .font(.body)
         .scrollContentBackground(.hidden)
@@ -183,5 +225,24 @@ struct PreferencesView: View {
         EnglishVoiceOption.available(for: accent).contains {
             $0.quality == .enhanced || $0.quality == .premium
         }
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
+    }
+
+    private var brandColor: Color {
+        Color(red: 0.29, green: 0.37, blue: 0.90)
+    }
+
+    private var buildNumber: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+    }
+
+    private func changelogRow(_ text: String) -> some View {
+        Label(text, systemImage: "checkmark.circle.fill")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .symbolRenderingMode(.hierarchical)
     }
 }

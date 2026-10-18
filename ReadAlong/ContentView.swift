@@ -7,7 +7,7 @@ import Translation
 struct ContentView: View {
     @StateObject private var speech = SpeechController()
     @StateObject private var audio = AudioPlaybackController()
-    @StateObject private var llmConfiguration = LLMConfiguration()
+    @StateObject private var localWhisperConfiguration = LocalWhisperConfiguration()
     @StateObject private var elevenLabsSpeechConfiguration = ElevenLabsSpeechConfiguration()
     @State private var text = ""
     @State private var readingSentences: [ReadingSentence] = []
@@ -50,7 +50,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             PreferencesView(
-                llmConfiguration: llmConfiguration,
+                localWhisperConfiguration: localWhisperConfiguration,
                 elevenLabsSpeechConfiguration: elevenLabsSpeechConfiguration,
                 accent: $accent,
                 selectedVoiceIdentifier: $selectedVoiceIdentifier,
@@ -648,7 +648,7 @@ struct ContentView: View {
                 ProgressView()
                     .progressViewStyle(.linear)
                 Label(
-                    llmConfiguration.localWhisperEnabled
+                    localWhisperConfiguration.localWhisperEnabled
                         ? "首段识别完成后即可阅读和播放。"
                         : "正在识别音频内容…",
                     systemImage: "waveform.badge.magnifyingglass"
@@ -823,24 +823,9 @@ struct ContentView: View {
                 translationError = "本地翻译等待超时。请确认系统允许下载翻译语言包，然后重试。"
                 return
             }
-            guard llmConfiguration.isTranslationConfigured else {
-                translationError = "苹果本地翻译需要 macOS 15 或 iOS 18；当前系统可在“大模型服务”中配置 API Key 作为回退。"
-                isTranslating = false
-                translationStatus = ""
-                return
-            }
-            do {
-                let values = try await LLMService.translateToChinese(passages, configuration: llmConfiguration)
-                guard !Task.isCancelled else { return }
-                chineseTranslations = Dictionary(uniqueKeysWithValues: values.enumerated().map { ($0.offset, $0.element) })
-            } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled else { return }
-                translationError = "中文翻译失败：\(error.localizedDescription)"
-            }
             isTranslating = false
             translationStatus = ""
+            translationError = "中文翻译需要 macOS 15 或 iOS 18 的苹果本地翻译功能。"
         }
     }
 
@@ -888,7 +873,7 @@ struct ContentView: View {
                 isEditingText = false
                 audioTranscriptText = ""
                 text = ""
-                let configuration = llmConfiguration
+                let configuration = localWhisperConfiguration
                 let usesLocalWhisper = configuration.localWhisperEnabled
                 audio.load(
                     url: url,
@@ -946,7 +931,7 @@ struct ContentView: View {
             }
         }
         let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        return message.isEmpty ? "服务未返回详细错误，请检查 API 地址、模型名和 API Key。" : message
+        return message.isEmpty ? "本地 Whisper 未返回详细错误，请检查运行时路径和模型配置。" : message
     }
 }
 

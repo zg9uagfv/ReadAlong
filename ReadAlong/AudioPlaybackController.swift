@@ -81,7 +81,7 @@ final class AudioPlaybackController: ObservableObject {
         isTranscribing = false
     }
 
-    func apply(transcription: LLMTranscription) {
+    func apply(transcription: WhisperTranscription) {
         transcriptionTask?.cancel()
         timedWords = normalizedTimedWords(transcription.words.map {
             TimedWord(text: $0.text, startTime: $0.start, duration: max(0.01, $0.end - $0.start))
@@ -92,7 +92,7 @@ final class AudioPlaybackController: ObservableObject {
         updateCurrentWordIndex()
     }
 
-    func appendWhisperChunk(_ transcription: LLMTranscription, completed: Int, total: Int) {
+    func appendWhisperChunk(_ transcription: WhisperTranscription, completed: Int, total: Int) {
         let chunkText = transcription.text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !chunkText.isEmpty {
             whisperText += (whisperText.isEmpty ? "" : " ") + chunkText

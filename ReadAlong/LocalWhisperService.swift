@@ -1,55 +1,25 @@
 import AVFoundation
 import Foundation
-import Security
 
 struct TimedTranscriptWord: Sendable {
     let text: String
     let start: Double
     let end: Double
 }
-
-struct LLMTranscription: Sendable {
+struct WhisperTranscription: Sendable {
     let text: String
     let words: [TimedTranscriptWord]
 }
 
 @MainActor
-final class LLMConfiguration: ObservableObject {
-    static let openAIBaseURL = "https://api.openai.com/v1"
-    static let openAIModel = "gpt-4o-mini"
-    private static let didApplyOpenAIServiceDefaultsKey = "didApplyOpenAIServiceDefaults"
-
-    @Published var baseURL: String { didSet { save() } }
-    @Published var model: String { didSet { save() } }
-    @Published var apiKey: String {
-        didSet {
-            guard !isRestoringAPIKey else { return }
-            let value = apiKey
-            keychainSaveQueue.async { Keychain.save(value) }
-        }
-    }
-    private var isRestoringAPIKey = false
-    private let keychainSaveQueue = DispatchQueue(label: "ReadAlong.LLM.KeychainSave", qos: .utility)
+final class LocalWhisperConfiguration: ObservableObject {
     @Published var localWhisperEnabled: Bool { didSet { save() } }
     @Published var localWhisperModel: String { didSet { save() } }
     @Published var localWhisperModelDirectory: String { didSet { save() } }
     @Published var localWhisperPythonPath: String { didSet { save() } }
 
-    var isConfigured: Bool { !baseURL.isEmpty && !model.isEmpty && !apiKey.isEmpty }
-    var isTranslationConfigured: Bool { isConfigured }
-
     init() {
         let defaults = UserDefaults.standard
-        let shouldApplyOpenAIDefaults = !defaults.bool(forKey: Self.didApplyOpenAIServiceDefaultsKey)
-        baseURL = shouldApplyOpenAIDefaults
-            ? Self.openAIBaseURL
-            : defaults.string(forKey: "llmBaseURL") ?? Self.openAIBaseURL
-        model = shouldApplyOpenAIDefaults
-            ? Self.openAIModel
-            : defaults.string(forKey: "llmModel")
-                ?? defaults.string(forKey: "llmTranslationModel")
-                ?? Self.openAIModel
-        apiKey = ""
         localWhisperEnabled = defaults.bool(forKey: "localWhisperEnabled")
         localWhisperModel = defaults.string(forKey: "localWhisperModel") ?? "mlx-community/whisper-large-v3-turbo"
         localWhisperModelDirectory = defaults.string(forKey: "localWhisperModelDirectory") ?? ""
@@ -60,30 +30,9 @@ final class LLMConfiguration: ObservableObject {
         if localWhisperPythonPath != savedRuntime {
             defaults.set(localWhisperPythonPath, forKey: "localWhisperPythonPath")
         }
-        if shouldApplyOpenAIDefaults {
-            defaults.set(baseURL, forKey: "llmBaseURL")
-            defaults.set(model, forKey: "llmModel")
-            defaults.set(true, forKey: Self.didApplyOpenAIServiceDefaultsKey)
-        }
-        Task.detached(priority: .utility) { [weak self] in
-            let savedKey = Keychain.load()
-            await MainActor.run {
-                guard let self, let savedKey, self.apiKey.isEmpty else { return }
-                self.isRestoringAPIKey = true
-                self.apiKey = savedKey
-                self.isRestoringAPIKey = false
-            }
-        }
-    }
-
-    func useOpenAIDefaults() {
-        baseURL = Self.openAIBaseURL
-        model = Self.openAIModel
     }
 
     private func save() {
-        UserDefaults.standard.set(baseURL, forKey: "llmBaseURL")
-        UserDefaults.standard.set(model, forKey: "llmModel")
         UserDefaults.standard.set(localWhisperEnabled, forKey: "localWhisperEnabled")
         UserDefaults.standard.set(localWhisperModel, forKey: "localWhisperModel")
         UserDefaults.standard.set(localWhisperModelDirectory, forKey: "localWhisperModelDirectory")
@@ -100,90 +49,6 @@ final class LLMConfiguration: ObservableObject {
         ]
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0) } ?? ""
     }
-}
-
-@MainActor
-enum LLMService {
-    static func translateToChinese(_ passages: [String], configuration: LLMConfiguration) async throws -> [String] {
-        guard !passages.isEmpty else { return [] }
-        var request = try request(path: "chat/completions", configuration: configuration)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let numberedText = passages.enumerated().map { "[\($0.offset)] \($0.element)" }.joined(separator: "\n")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "model": configuration.model,
-            "temperature": 0,
-            "messages": [
-                ["role": "system", "content": "Translate each numbered English passage into natural Simplified Chinese. Return only a JSON array of translated strings, in exactly the same order and count. Do not include the numbers."],
-                ["role": "user", "content": numberedText]
-            ]
-        ])
-        let (data, response) = try await URLSession.shared.data(for: request)
-        try validate(response, data)
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = root["choices"] as? [[String: Any]],
-              let message = choices.first?["message"] as? [String: Any],
-              let content = message["content"] as? String else {
-            throw NSError(domain: "LLMService", code: 2, userInfo: [NSLocalizedDescriptionKey: "翻译服务未返回有效内容。"])
-        }
-        let jsonText = content
-            .replacingOccurrences(of: "```json", with: "")
-            .replacingOccurrences(of: "```", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let jsonData = jsonText.data(using: .utf8),
-              let translations = try JSONSerialization.jsonObject(with: jsonData) as? [String],
-              translations.count == passages.count else {
-            throw NSError(domain: "LLMService", code: 3, userInfo: [NSLocalizedDescriptionKey: "翻译结果与原文段落数量不一致，请重试。"])
-        }
-        return translations
-    }
-
-    private static func request(path: String, configuration: LLMConfiguration) throws -> URLRequest {
-        let root = configuration.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard let url = URL(string: root + "/" + path) else { throw URLError(.badURL) }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
-        return request
-    }
-
-    private static func validate(_ response: URLResponse, _ data: Data) throws {
-        guard let http = response as? HTTPURLResponse else {
-            throw NSError(domain: "LLMService", code: 1, userInfo: [NSLocalizedDescriptionKey: "大模型服务未返回有效响应。"])
-        }
-        guard 200..<300 ~= http.statusCode else {
-            throw NSError(
-                domain: "LLMService",
-                code: http.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: serviceErrorMessage(statusCode: http.statusCode, data: data)]
-            )
-        }
-    }
-
-    private static func serviceErrorMessage(statusCode: Int, data: Data) -> String {
-        if statusCode == 401 || statusCode == 403 {
-            return "认证失败：API Key 无效，或与当前服务地址不匹配。"
-        }
-        if statusCode == 404 {
-            return "找不到大模型接口：请确认服务支持 /chat/completions。"
-        }
-        if statusCode == 429 {
-            if let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let error = response["error"] as? [String: Any],
-               let code = error["code"] as? String,
-               code == "credit_balance_exhausted" {
-                return "OpenAI API 账户额度已用尽，请充值后再试。"
-            }
-            return "请求过于频繁或账户额度不足，请稍后重试。"
-        }
-        if let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let error = response["error"] as? [String: Any],
-           let message = error["message"] as? String,
-           !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "服务请求失败：\(message)"
-        }
-        return "服务请求失败（HTTP \(statusCode)），且未返回详细错误。"
-    }
-
 }
 
 @MainActor
@@ -210,8 +75,8 @@ enum LocalWhisperService {
 
     static func transcribe(
         url: URL,
-        configuration: LLMConfiguration,
-        onChunk: @MainActor (LLMTranscription, Int, Int) -> Void
+        configuration: LocalWhisperConfiguration,
+        onChunk: @MainActor (WhisperTranscription, Int, Int) -> Void
     ) async throws {
         let runtimePath = configuration.localWhisperPythonPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !runtimePath.isEmpty else {
@@ -275,7 +140,7 @@ enum LocalWhisperService {
                 throw LocalWhisperError.outputMissing
             }
             let transcription = try parse(data: Data(contentsOf: jsonURL))
-            let shifted = LLMTranscription(
+            let shifted = WhisperTranscription(
                 text: transcription.text,
                 words: transcription.words.map {
                     TimedTranscriptWord(text: $0.text, start: start + $0.start, end: start + $0.end)
@@ -303,7 +168,7 @@ enum LocalWhisperService {
         return outputURL
     }
 
-    private static func parse(data: Data) throws -> LLMTranscription {
+    private static func parse(data: Data) throws -> WhisperTranscription {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               json["text"] is String || json["segments"] is [[String: Any]] else {
             throw LocalWhisperError.outputInvalid
@@ -319,7 +184,7 @@ enum LocalWhisperService {
         }
         let segmentText = segments.compactMap { $0["text"] as? String }.joined(separator: " ")
         let text = (json["text"] as? String) ?? segmentText
-        return LLMTranscription(text: text, words: words)
+        return WhisperTranscription(text: text, words: words)
     }
 
     private static func number(_ value: Any?) -> Double? {
@@ -408,26 +273,3 @@ private enum LocalWhisperError: LocalizedError {
     }
 }
 
-private enum Keychain {
-    private static let service = "ReadAlong.LLM"
-    private static let legacyService = "EnglishReader.LLM"
-    private static let account = "apiKey"
-
-    static func save(_ value: String) {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
-        SecItemDelete(query as CFDictionary)
-        var item = query
-        item[kSecValueData as String] = value.data(using: .utf8)
-        SecItemAdd(item as CFDictionary, nil)
-    }
-    static func load() -> String? {
-        load(service: service) ?? load(service: legacyService)
-    }
-
-    private static func load(service: String) -> String? {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecReturnData as String: true]
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-}

@@ -16,7 +16,7 @@
 		A10000000000000000000008 /* TextFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* TextFormatting.swift */; };
 		A10000000000000000000009 /* PreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* PreferencesView.swift */; };
 		A1000000000000000000000A /* AudioPlaybackController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* AudioPlaybackController.swift */; };
-		A1000000000000000000000B /* LLMService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* LLMService.swift */; };
+		A1000000000000000000000B /* LocalWhisperService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* LocalWhisperService.swift */; };
 		A1000000000000000000000C /* ElevenLabsSpeech.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* ElevenLabsSpeech.swift */; };
 /* End PBXBuildFile section */
 
@@ -32,7 +32,7 @@
 		A20000000000000000000009 /* TextFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFormatting.swift; sourceTree = "<group>"; };
 		A2000000000000000000000A /* PreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000B /* AudioPlaybackController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackController.swift; sourceTree = "<group>"; };
-		A2000000000000000000000C /* LLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMService.swift; sourceTree = "<group>"; };
+		A2000000000000000000000C /* LocalWhisperService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWhisperService.swift; sourceTree = "<group>"; };
 		A2000000000000000000000D /* ElevenLabsSpeech.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ElevenLabsSpeech.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -67,7 +67,7 @@
 				A20000000000000000000009 /* TextFormatting.swift */,
 				A2000000000000000000000A /* PreferencesView.swift */,
 				A2000000000000000000000B /* AudioPlaybackController.swift */,
-				A2000000000000000000000C /* LLMService.swift */,
+				A2000000000000000000000C /* LocalWhisperService.swift */,
 				A2000000000000000000000D /* ElevenLabsSpeech.swift */,
 			);
 			path = ReadAlong;
@@ -148,7 +148,7 @@
 				A10000000000000000000008 /* TextFormatting.swift in Sources */,
 				A10000000000000000000009 /* PreferencesView.swift in Sources */,
 				A1000000000000000000000A /* AudioPlaybackController.swift in Sources */,
-				A1000000000000000000000B /* LLMService.swift in Sources */,
+				A1000000000000000000000B /* LocalWhisperService.swift in Sources */,
 				A1000000000000000000000C /* ElevenLabsSpeech.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

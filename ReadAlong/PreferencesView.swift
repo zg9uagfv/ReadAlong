@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PreferencesView: View {
-    @ObservedObject var llmConfiguration: LLMConfiguration
+    @ObservedObject var localWhisperConfiguration: LocalWhisperConfiguration
     @ObservedObject var elevenLabsSpeechConfiguration: ElevenLabsSpeechConfiguration
     @Binding var accent: EnglishAccent
     @Binding var selectedVoiceIdentifier: String
@@ -13,7 +13,6 @@ struct PreferencesView: View {
     @State private var isTTSExpanded = false
     @State private var isChildModeExpanded = false
     @State private var isTypographyExpanded = false
-    @State private var isLLMExpanded = false
     @State private var isLocalWhisperExpanded = false
 
     var body: some View {
@@ -138,33 +137,14 @@ struct PreferencesView: View {
                         .onTapGesture { isTypographyExpanded.toggle() }
                 }
 
-                DisclosureGroup(isExpanded: $isLLMExpanded) {
-                    Button("使用 OpenAI 默认配置") {
-                        llmConfiguration.useOpenAIDefaults()
-                    }
-                    .buttonStyle(ReaderOutlinedButtonStyle())
-                    TextField("服务地址（例如 https://api.openai.com/v1）", text: $llmConfiguration.baseURL)
-                    TextField("通用模型", text: $llmConfiguration.model)
-                    SecureField("API Key", text: $llmConfiguration.apiKey)
-                    Text("只配置一个通用大模型。具体任务由程序通过 prompt 告知模型；API Key 仅保存在本机钥匙串。")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                } label: {
-                    Label("大模型服务", systemImage: "brain.head.profile")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .onTapGesture { isLLMExpanded.toggle() }
-                }
-
                 DisclosureGroup(isExpanded: $isLocalWhisperExpanded) {
-                    Toggle("优先使用本地 Whisper（仅 macOS）", isOn: $llmConfiguration.localWhisperEnabled)
-                    if llmConfiguration.localWhisperEnabled {
-                        TextField("模型名", text: $llmConfiguration.localWhisperModel)
-                        TextField("模型目录（可选）", text: $llmConfiguration.localWhisperModelDirectory)
-                        TextField("Python / Whisper 运行时路径", text: $llmConfiguration.localWhisperPythonPath)
+                    Toggle("优先使用本地 Whisper（仅 macOS）", isOn: $localWhisperConfiguration.localWhisperEnabled)
+                    if localWhisperConfiguration.localWhisperEnabled {
+                        TextField("模型名", text: $localWhisperConfiguration.localWhisperModel)
+                        TextField("模型目录（可选）", text: $localWhisperConfiguration.localWhisperModelDirectory)
+                        TextField("Python / Whisper 运行时路径", text: $localWhisperConfiguration.localWhisperPythonPath)
                     }
-                    Text("MacBook 上可配置例如 whisper-large-v3-turbo；iPad 自动回退到远程 API 或系统识别。运行时路径需指向已安装 whispermlx 的 Python。")
+                    Text("MacBook 上可配置例如 whisper-large-v3-turbo；iPad 使用系统语音识别。运行时路径需指向已安装 whispermlx 的 Python。")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 } label: {

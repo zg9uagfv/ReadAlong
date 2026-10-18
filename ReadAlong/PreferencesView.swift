@@ -72,7 +72,20 @@ struct PreferencesView: View {
                     LabeledContent("语速") {
                         HStack {
                             Slider(value: $speed, in: 0.18...0.68, step: 0.01)
-                            Text(speedLabel).monospacedDigit().frame(width: 96, alignment: .trailing)
+                            HStack(spacing: 2) {
+                                TextField(
+                                    "",
+                                    value: speedMultiplier,
+                                    format: .number.precision(.fractionLength(0...2))
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.trailing)
+                                .monospacedDigit()
+                                .frame(width: 52)
+                                .accessibilityLabel("语速倍率")
+                                Text("×")
+                            }
+                            .frame(width: 64, alignment: .trailing)
                         }
                     }
                     Text(elevenLabsSpeechConfiguration.isEnabled
@@ -94,9 +107,20 @@ struct PreferencesView: View {
                             LabeledContent("单词间停顿") {
                                 HStack {
                                     Slider(value: $wordPause, in: 0.0...2.0, step: 0.5)
-                                    Text(String(format: "%.1f 秒", wordPause))
+                                    HStack(spacing: 2) {
+                                        TextField(
+                                            "",
+                                            value: wordPauseInput,
+                                            format: .number.precision(.fractionLength(0...2))
+                                        )
+                                        .textFieldStyle(.roundedBorder)
+                                        .multilineTextAlignment(.trailing)
                                         .monospacedDigit()
-                                        .frame(width: 62, alignment: .trailing)
+                                        .frame(width: 52)
+                                        .accessibilityLabel("单词间停顿秒数")
+                                        Text("秒")
+                                    }
+                                    .frame(width: 64, alignment: .trailing)
                                 }
                             }
                         }
@@ -211,14 +235,22 @@ struct PreferencesView: View {
         .navigationTitle("偏好设置")
     }
 
-    private var speedLabel: String {
-        switch speed {
-        case ..<0.28: return "很慢 · \(String(format: "%.1f×", speed / 0.45))"
-        case ..<0.39: return "慢速 · \(String(format: "%.1f×", speed / 0.45))"
-        case ..<0.52: return "正常 · \(String(format: "%.1f×", speed / 0.45))"
-        case ..<0.61: return "快速 · \(String(format: "%.1f×", speed / 0.45))"
-        default: return "很快 · \(String(format: "%.1f×", speed / 0.45))"
-        }
+    private var speedMultiplier: Binding<Double> {
+        Binding(
+            get: { speed / 0.45 },
+            set: { multiplier in
+                speed = min(max(multiplier * 0.45, 0.18), 0.68)
+            }
+        )
+    }
+
+    private var wordPauseInput: Binding<Double> {
+        Binding(
+            get: { wordPause },
+            set: { pause in
+                wordPause = min(max(pause, 0), 2)
+            }
+        )
     }
 
     private var hasHighQualityVoice: Bool {

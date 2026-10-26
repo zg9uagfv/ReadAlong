@@ -129,6 +129,9 @@ struct PreferencesView: View {
                             : "系统语音逐词朗读，每个词结束后按设定时长停顿。")
                             .font(.callout)
                             .foregroundStyle(.secondary)
+                        Text("儿童模式用于 TTS 朗读。导入音频时，请在播放区选择“TTS 朗读”；播放原音频不会改变其语速和停顿。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                 } label: {
                         Label("儿童模式", systemImage: "figure.and.child.holdinghands")
                             .font(.body.weight(.semibold))

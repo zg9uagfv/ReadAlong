@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var isScrubbingReadingProgress = false
     @State private var pendingReadingWordIndex = 0.0
     @State private var isAudioProgressVisible = true
+    @State private var usesTTSForAudio = false
     @State private var audioPlaybackRate = 1.0
     @State private var audioPlaybackRateInput = "1.0"
     @AppStorage("showsChineseTranslation") private var showsChineseTranslation = false
@@ -98,10 +99,16 @@ struct ContentView: View {
             .onChange(of: wordPause) { _ in
                 applyLiveSettings(debounced: true)
             }
-            .onChange(of: childMode) { enabled in
-                if enabled && audio.isPlaying {
-                    audio.pause()
+            .onChange(of: childMode) { _ in
+                if speech.isSpeaking && speech.isReadingArticle {
+                    seekTextReading(to: speech.currentSpokenWordIndex ?? 0)
                 }
+            }
+            .onChange(of: usesTTSForAudio) { _ in
+                audio.pause()
+                speech.stop()
+                pendingReadingWordIndex = 0
+                isScrubbingReadingProgress = false
             }
             .onChange(of: speech.isSpeaking) { isSpeaking in
                 // The system synthesizer clears its active word when the final
@@ -127,8 +134,7 @@ struct ContentView: View {
                       updatedText != audioTranscriptText else { return }
                 // The source text has diverged from the audio transcript. Keeping
                 // the old player here would make the play button use stale audio.
-                localWhisperTask?.cancel()
-                localWhisperRequestID = UUID()
+                cancelAudioTranscription()
                 audio.unload()
                 speech.stop()
             }
@@ -483,7 +489,7 @@ struct ContentView: View {
     /// 单击句首单词：从该句的第一个词开始（或跳转继续）朗读，并把进度条同步到句首。
     private func readSentenceFromStart(at wordIndex: Int) {
         pendingReadingWordIndex = Double(wordIndex)
-        if audio.hasAudio {
+        if audio.hasAudio && !usesTTSForAudio {
             audio.seek(toWordAt: wordIndex)
         } else {
             seekTextReading(to: wordIndex)
@@ -518,6 +524,10 @@ struct ContentView: View {
         VStack(spacing: 14) {
             if audio.hasAudio {
                 audioControls
+                if usesTTSForAudio {
+                    readingProgress
+                    ttsControls
+                }
             } else if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 readingProgress
                 ttsControls
@@ -579,12 +589,15 @@ struct ContentView: View {
                 if speech.isSpeaking {
                     speech.stop()
                 } else {
+                    if audio.hasAudio { audio.pause() }
                     isEditingText = false
                     startTextReading()
                 }
             } label: {
                 Label(
-                    speech.isSpeaking ? "关闭阅读" : "开始阅读",
+                    speech.isSpeaking
+                        ? (audio.hasAudio ? "停止 TTS 朗读" : "关闭阅读")
+                        : (audio.hasAudio ? "开始 TTS 朗读" : "开始阅读"),
                     systemImage: speech.isSpeaking ? "speaker.slash.fill" : "speaker.wave.2.fill"
                 )
                     .frame(minWidth: 110)
@@ -625,39 +638,58 @@ struct ContentView: View {
                 }
                 .help(isAudioProgressVisible ? "点击隐藏播放进度" : "点击显示播放进度")
 
-                TextField("倍率", text: $audioPlaybackRateInput)
-                    .textFieldStyle(.roundedBorder)
-                    .multilineTextAlignment(.trailing)
-                    .monospacedDigit()
-                    .frame(width: 58)
-                    .focused($isAudioPlaybackRateFocused)
-                    .onChange(of: audioPlaybackRateInput) { input in
-                        updateAudioPlaybackRateInput(input)
-                    }
-                    .onChange(of: isAudioPlaybackRateFocused) { isFocused in
-                        if !isFocused { commitAudioPlaybackRateInput() }
-                    }
-                    .onSubmit { commitAudioPlaybackRateInput() }
-                    .accessibilityLabel("音频播放倍率，范围 0.1 到 4")
-                Text("×")
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
+                if !usesTTSForAudio {
+                    TextField("倍率", text: $audioPlaybackRateInput)
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.trailing)
+                        .monospacedDigit()
+                        .frame(width: 58)
+                        .focused($isAudioPlaybackRateFocused)
+                        .onChange(of: audioPlaybackRateInput) { input in
+                            updateAudioPlaybackRateInput(input)
+                        }
+                        .onChange(of: isAudioPlaybackRateFocused) { isFocused in
+                            if !isFocused { commitAudioPlaybackRateInput() }
+                        }
+                        .onSubmit { commitAudioPlaybackRateInput() }
+                        .accessibilityLabel("音频播放倍率，范围 0.1 到 4")
+                    Text("×")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                }
             }
 
-            if audio.isTranscribing && !audio.canReadWhileTranscribing {
-                ProgressView()
-                    .progressViewStyle(.linear)
-                Label(
-                    localWhisperConfiguration.localWhisperEnabled
-                        ? "首段识别完成后即可阅读和播放。"
-                        : "正在识别音频内容…",
-                    systemImage: "waveform.badge.magnifyingglass"
-                )
+            Picker("朗读来源", selection: $usesTTSForAudio) {
+                Text("原音频").tag(false)
+                Text("TTS 朗读").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .disabled(audio.isTranscribing || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            if audio.isTranscribing {
+                Text("识别完成后可选择 TTS 朗读；儿童模式只影响 TTS。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if childMode && !usesTTSForAudio {
+                Text("当前播放原音频；切换到 TTS 朗读后儿童模式才会生效。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            if isAudioProgressVisible {
+            if audio.isTranscribing {
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("识别中，音频可随时播放")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("停止识别") { cancelAudioTranscription() }
+                        .accessibilityLabel("停止音频识别")
+                }
+            }
+
+            if !usesTTSForAudio && isAudioProgressVisible {
                 Slider(
                     value: Binding(
                         get: { audio.currentTime },
@@ -677,12 +709,14 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             }
 
-            Button { audio.togglePlayback() } label: {
-                Label(audio.isPlaying ? "暂停音频" : "播放音频", systemImage: audio.isPlaying ? "pause.fill" : "play.fill")
-                    .frame(minWidth: 110)
+            if !usesTTSForAudio {
+                Button { audio.togglePlayback() } label: {
+                    Label(audio.isPlaying ? "暂停音频" : "播放音频", systemImage: audio.isPlaying ? "pause.fill" : "play.fill")
+                        .frame(minWidth: 110)
+                }
+                .buttonStyle(ReaderFilledButtonStyle())
+                .disabled(!audio.canControlPlayback)
             }
-            .buttonStyle(ReaderFilledButtonStyle())
-            .disabled(!audio.canControlPlayback)
         }
         .padding(16)
         .background(ReaderTheme.mint.opacity(0.27), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -789,7 +823,7 @@ struct ContentView: View {
 
     private var activeSpokenWordIndex: Int? {
         if speech.isSpeaking { return speech.currentSpokenWordIndex }
-        return audio.hasAudio ? audio.currentSpokenWordIndex : nil
+        return audio.hasAudio && !usesTTSForAudio ? audio.currentSpokenWordIndex : nil
     }
 
     private func scheduleTranslation(for sourceText: String, immediately: Bool = false) {
@@ -860,8 +894,7 @@ struct ContentView: View {
     private func importFile(_ result: Result<[URL], Error>) {
         do {
             guard let url = try result.get().first else { return }
-            localWhisperTask?.cancel()
-            localWhisperRequestID = UUID()
+            cancelAudioTranscription()
             let resourceValues = try url.resourceValues(forKeys: [.contentTypeKey, .isDirectoryKey])
             guard resourceValues.isDirectory != true else {
                 throw FileImportError.unsupportedFormat
@@ -870,6 +903,7 @@ struct ContentView: View {
             let contentType = resourceValues.contentType ?? UTType(filenameExtension: url.pathExtension)
             let fileExtension = url.pathExtension.lowercased()
             if contentType?.conforms(to: .audio) == true {
+                usesTTSForAudio = false
                 isEditingText = false
                 audioTranscriptText = ""
                 text = ""
@@ -919,6 +953,13 @@ struct ContentView: View {
         } catch {
             errorMessage = error.localizedDescription.isEmpty ? FileImportError.unsupportedFormat.localizedDescription : error.localizedDescription
         }
+    }
+
+    private func cancelAudioTranscription() {
+        localWhisperRequestID = UUID()
+        localWhisperTask?.cancel()
+        localWhisperTask = nil
+        audio.cancelTranscription()
     }
 
     private func transcriptionErrorMessage(_ error: Error) -> String {

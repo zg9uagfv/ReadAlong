@@ -27,6 +27,8 @@ final class AudioPlaybackController: ObservableObject {
     private var durationObserver: NSKeyValueObservation?
     private var scopedURL: URL?
     private var transcriptionTask: SFSpeechRecognitionTask?
+    private var systemTranscriptionTask: Task<Void, Never>?
+    private var transcriptionRequestID = UUID()
     private var timedWords: [TimedWord] = []
     private var whisperWords: [TimedWord] = []
     private var whisperText = ""
@@ -34,7 +36,7 @@ final class AudioPlaybackController: ObservableObject {
     private var isSeeking = false
 
     var hasAudio: Bool { player != nil }
-    var canControlPlayback: Bool { !isTranscribing || canReadWhileTranscribing }
+    var canControlPlayback: Bool { hasAudio }
 
     deinit {
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
@@ -64,10 +66,23 @@ final class AudioPlaybackController: ObservableObject {
     }
 
     func startSystemTranscription(url: URL, localeIdentifier: String) {
+        cancelTranscription()
         transcriptionStatus = "正在使用系统语音识别…"
         isTranscribing = true
         canReadWhileTranscribing = false
         transcribe(url: url, localeIdentifier: localeIdentifier)
+    }
+
+    func cancelTranscription() {
+        transcriptionRequestID = UUID()
+        systemTranscriptionTask?.cancel()
+        systemTranscriptionTask = nil
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        if isTranscribing {
+            transcriptionStatus = "已停止识别"
+            isTranscribing = false
+        }
     }
 
     func beginTranscription(status: String) {
@@ -192,10 +207,12 @@ final class AudioPlaybackController: ObservableObject {
     }
 
     private func transcribe(url: URL, localeIdentifier: String) {
-        transcriptionTask?.cancel()
-        Task { [weak self] in
+        let requestID = UUID()
+        transcriptionRequestID = requestID
+        systemTranscriptionTask = Task { [weak self] in
             guard let self else { return }
             let status = await Self.requestSpeechAuthorization()
+            guard self.transcriptionRequestID == requestID, !Task.isCancelled else { return }
             guard status == .authorized else {
                 self.transcriptionStatus = "需要允许“语音识别”权限，才能显示音频文本。"
                 self.isTranscribing = false
@@ -209,6 +226,7 @@ final class AudioPlaybackController: ObservableObject {
 
             let asset = AVURLAsset(url: url)
             let totalDuration = asset.duration.seconds
+            guard self.transcriptionRequestID == requestID, !Task.isCancelled else { return }
             guard totalDuration.isFinite, totalDuration > 0 else {
                 self.transcriptionStatus = "无法读取音频时长。"
                 self.isTranscribing = false
@@ -227,8 +245,10 @@ final class AudioPlaybackController: ObservableObject {
                     self.transcriptionStatus = "正在识别第 \(chunkIndex + 1)/\(chunkCount) 段音频…"
                     let chunkURL = try await self.exportChunk(from: asset, start: start, duration: length)
                     defer { try? FileManager.default.removeItem(at: chunkURL) }
+                    try Task.checkCancellation()
 
                     let transcription = try await self.recognize(chunkURL, with: recognizer)
+                    guard self.transcriptionRequestID == requestID, !Task.isCancelled else { return }
                     allWords.append(contentsOf: transcription.segments.map {
                         TimedWord(text: $0.substring, startTime: start + $0.timestamp, duration: $0.duration)
                     })
@@ -241,9 +261,11 @@ final class AudioPlaybackController: ObservableObject {
                 self.transcriptionStatus = nil
                 self.isTranscribing = false
             } catch {
+                guard self.transcriptionRequestID == requestID, !(error is CancellationError), !Task.isCancelled else { return }
                 self.transcriptionStatus = "音频识别失败：\(error.localizedDescription)"
                 self.isTranscribing = false
             }
+            if self.transcriptionRequestID == requestID { self.systemTranscriptionTask = nil }
         }
     }
 
@@ -260,8 +282,13 @@ final class AudioPlaybackController: ObservableObject {
             start: CMTime(seconds: start, preferredTimescale: 600),
             duration: CMTime(seconds: duration, preferredTimescale: 600)
         )
-        await withCheckedContinuation { continuation in
-            exporter.exportAsynchronously { continuation.resume() }
+        try await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                exporter.exportAsynchronously { continuation.resume() }
+            }
+            try Task.checkCancellation()
+        } onCancel: {
+            exporter.cancelExport()
         }
         guard exporter.status == .completed else {
             throw exporter.error ?? AudioTranscriptionError.exportFailed
@@ -373,7 +400,7 @@ final class AudioPlaybackController: ObservableObject {
 
     private func stopAndReleaseFile() {
         player?.pause()
-        transcriptionTask?.cancel()
+        cancelTranscription()
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         if let scopedURL { scopedURL.stopAccessingSecurityScopedResource() }

@@ -18,6 +18,7 @@
 		A1000000000000000000000A /* AudioPlaybackController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* AudioPlaybackController.swift */; };
 		A1000000000000000000000B /* LocalWhisperService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* LocalWhisperService.swift */; };
 		A1000000000000000000000C /* ElevenLabsSpeech.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* ElevenLabsSpeech.swift */; };
+		A1000000000000000000000D /* whisper-worker.py in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* whisper-worker.py */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +35,7 @@
 		A2000000000000000000000B /* AudioPlaybackController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackController.swift; sourceTree = "<group>"; };
 		A2000000000000000000000C /* LocalWhisperService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWhisperService.swift; sourceTree = "<group>"; };
 		A2000000000000000000000D /* ElevenLabsSpeech.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ElevenLabsSpeech.swift; sourceTree = "<group>"; };
+		A2000000000000000000000E /* whisper-worker.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "whisper-worker.py"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -69,6 +71,7 @@
 				A2000000000000000000000B /* AudioPlaybackController.swift */,
 				A2000000000000000000000C /* LocalWhisperService.swift */,
 				A2000000000000000000000D /* ElevenLabsSpeech.swift */,
+				A2000000000000000000000E /* whisper-worker.py */,
 			);
 			path = ReadAlong;
 			sourceTree = "<group>";
@@ -129,6 +132,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000004 /* Assets.xcassets in Resources */,
+				A1000000000000000000000D /* whisper-worker.py in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

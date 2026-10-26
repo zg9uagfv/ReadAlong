@@ -98,47 +98,45 @@ enum LocalWhisperService {
         }
         let chunkLength = 60.0
         let chunkCount = Int(ceil(duration / chunkLength))
-        var hasReadableChunk = false
+        guard let workerURL = Bundle.main.url(forResource: "whisper-worker", withExtension: "py") else {
+            throw LocalWhisperError.workerMissing
+        }
+
+        var arguments = [
+            workerURL.path, url.path, outputDirectory.path,
+            "--model", configuration.localWhisperModel,
+            "--chunk-seconds", String(chunkLength),
+            "--chunk-count", String(chunkCount)
+        ]
+        let modelDirectory = configuration.localWhisperModelDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !modelDirectory.isEmpty {
+            arguments += ["--model-dir", modelDirectory]
+        }
+        let workerArguments = arguments
+        let completionURL = outputDirectory.appendingPathComponent("process-complete")
+        async let processResult = run(
+            executable: runtimePath,
+            arguments: workerArguments,
+            completionURL: completionURL
+        )
 
         for chunkIndex in 0..<chunkCount {
             try Task.checkCancellation()
             let start = Double(chunkIndex) * chunkLength
-            let length = min(chunkLength, duration - start)
-            let inputURL = chunkCount == 1
-                ? url
-                : try await exportChunk(from: asset, start: start, duration: length, index: chunkIndex, to: outputDirectory)
-            defer { if chunkCount > 1 { try? FileManager.default.removeItem(at: inputURL) } }
-
-            var arguments = [
-                "-m", "whispermlx", inputURL.path,
-                "--model", configuration.localWhisperModel,
-                "--language", "en",
-                "--output_dir", outputDirectory.path,
-                "--output_format", "json",
-                "--verbose", "False",
-                "--log-level", "warning",
-                "--print_progress", "False"
-            ]
-            let modelDirectory = configuration.localWhisperModelDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !modelDirectory.isEmpty {
-                arguments += ["--model_dir", modelDirectory]
-            }
-
-            let result = try await run(
-                executable: runtimePath,
-                arguments: arguments,
-                background: hasReadableChunk
-            )
-            try Task.checkCancellation()
-            guard result.status == 0 else {
-                throw LocalWhisperError.processFailed(summary(of: result.output))
-            }
             let jsonURL = outputDirectory
-                .appendingPathComponent(inputURL.deletingPathExtension().lastPathComponent)
-                .appendingPathExtension("json")
-            guard FileManager.default.fileExists(atPath: jsonURL.path) else {
-                throw LocalWhisperError.outputMissing
+                .appendingPathComponent(String(format: "chunk_%04d.json", chunkIndex))
+            while !FileManager.default.fileExists(atPath: jsonURL.path) {
+                try Task.checkCancellation()
+                if FileManager.default.fileExists(atPath: completionURL.path) {
+                    let result = try await processResult
+                    guard result.status == 0 else {
+                        throw LocalWhisperError.processFailed(summary(of: result.output))
+                    }
+                    throw LocalWhisperError.outputMissing
+                }
+                try await Task.sleep(nanoseconds: 100_000_000)
             }
+            try Task.checkCancellation()
             let transcription = try parse(data: Data(contentsOf: jsonURL))
             let shifted = WhisperTranscription(
                 text: transcription.text,
@@ -147,25 +145,11 @@ enum LocalWhisperService {
                 }
             )
             onChunk(shifted, chunkIndex + 1, chunkCount)
-            if !shifted.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !shifted.words.isEmpty {
-                hasReadableChunk = true
-            }
         }
-    }
-
-    private static func exportChunk(from asset: AVAsset, start: Double, duration: Double, index: Int, to directory: URL) async throws -> URL {
-        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-            throw LocalWhisperError.exportUnavailable
+        let result = try await processResult
+        guard result.status == 0 else {
+            throw LocalWhisperError.processFailed(summary(of: result.output))
         }
-        let outputURL = directory.appendingPathComponent(String(format: "chunk_%04d.m4a", index))
-        exporter.outputURL = outputURL
-        exporter.outputFileType = .m4a
-        exporter.timeRange = CMTimeRange(
-            start: CMTime(seconds: start, preferredTimescale: 600),
-            duration: CMTime(seconds: duration, preferredTimescale: 600)
-        )
-        try await exporter.export(to: outputURL, as: .m4a)
-        return outputURL
     }
 
     private static func parse(data: Data) throws -> WhisperTranscription {
@@ -204,14 +188,15 @@ enum LocalWhisperService {
     private static func run(
         executable: String,
         arguments: [String],
-        background: Bool
+        completionURL: URL
     ) async throws -> (status: Int32, output: String) {
         try Task.checkCancellation()
         let cancellable = CancellableProcess()
         let process = cancellable.process
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global(qos: background ? .utility : .userInitiated).async {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { try? Data().write(to: completionURL, options: .atomic) }
                     do {
                         let logURL = FileManager.default.temporaryDirectory
                             .appendingPathComponent("ReadAlong-Whisper-log-\(UUID().uuidString)")
@@ -255,7 +240,7 @@ private enum LocalWhisperError: LocalizedError {
     case runtimeNotConfigured
     case runtimeUnavailable
     case invalidDuration
-    case exportUnavailable
+    case workerMissing
     case outputMissing
     case outputInvalid
     case processFailed(String)
@@ -265,7 +250,7 @@ private enum LocalWhisperError: LocalizedError {
         case .runtimeNotConfigured: return "请在偏好设置中填写 Python / Whisper 运行时路径。"
         case .runtimeUnavailable: return "指定的 Python / Whisper 运行时不可执行。"
         case .invalidDuration: return "无法读取音频时长。"
-        case .exportUnavailable: return "当前设备无法分段处理该音频。"
+        case .workerMissing: return "应用缺少本地 Whisper 转写组件。"
         case .outputMissing: return "本地 Whisper 未生成转写文件。"
         case .outputInvalid: return "本地 Whisper 的转写文件格式无效。"
         case .processFailed(let message): return "本地 Whisper 运行失败：\(message)"

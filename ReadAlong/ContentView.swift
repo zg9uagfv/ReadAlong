@@ -10,6 +10,9 @@ struct ContentView: View {
     @StateObject private var localWhisperConfiguration = LocalWhisperConfiguration()
     @StateObject private var elevenLabsSpeechConfiguration = ElevenLabsSpeechConfiguration()
     @State private var text = ""
+    @AppStorage("lastReadingArticleText") private var lastReadingArticleText = ""
+    @AppStorage("lastReadingWordIndex") private var lastReadingWordIndex = 0
+    @AppStorage("lastReadingSpeed") private var savedReadingSpeed = 0.45
     @State private var readingSentences: [ReadingSentence] = []
     @State private var accent: EnglishAccent = .american
     @State private var speed = 0.45
@@ -34,6 +37,9 @@ struct ContentView: View {
     @State private var usesTTSForAudio = false
     @State private var audioPlaybackRate = 1.0
     @State private var audioPlaybackRateInput = "1.0"
+    @State private var recentArticles: [RecentArticle] = []
+    @State private var isShowingLibrary = false
+    @State private var loopStart: Double?
     @AppStorage("showsChineseTranslation") private var showsChineseTranslation = false
     @State private var chineseTranslations: [Int: String] = [:]
     @State private var isTranslating = false
@@ -87,6 +93,7 @@ struct ContentView: View {
                 applyLiveSettings(debounced: false)
             }
             .onChange(of: speed) { _ in
+                savedReadingSpeed = speed
                 applyLiveSettings(debounced: true)
             }
             .onChange(of: audioPlaybackRate) { value in
@@ -126,6 +133,8 @@ struct ContentView: View {
                 isEditingText = false
             }
             .onChange(of: text) { updatedText in
+                lastReadingArticleText = updatedText
+                saveRecentArticle(text: updatedText, position: lastReadingWordIndex)
                 updateReadingSentences(for: updatedText)
                 scheduleTranslation(for: updatedText)
                 guard isEditingText,
@@ -159,6 +168,21 @@ struct ContentView: View {
             .onChange(of: speech.lastError) { newError in
                 if let newError { errorMessage = newError }
             }
+            .onChange(of: activeSpokenWordIndex) { index in
+                if let index {
+                    lastReadingWordIndex = index
+                    saveRecentArticle(text: text, position: index)
+                }
+            }
+            .onAppear {
+                loadRecentArticles()
+                speed = savedReadingSpeed
+                guard text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      !lastReadingArticleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                text = lastReadingArticleText
+                pendingReadingWordIndex = Double(lastReadingWordIndex)
+                isEditingText = false
+            }
             .alert("提示", isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
@@ -175,6 +199,26 @@ struct ContentView: View {
         // complete split view in light appearance prevents macOS Form labels
         // from becoming white against that canvas.
         .preferredColorScheme(.light)
+        .sheet(isPresented: $isShowingLibrary) {
+            NavigationStack {
+                List(recentArticles) { item in
+                    Button {
+                        text = item.text
+                        pendingReadingWordIndex = Double(item.position)
+                        isEditingText = false
+                        isShowingLibrary = false
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.title).lineLimit(1)
+                            Text("第 \(item.position + 1) 个词继续 · \(item.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .navigationTitle("最近阅读")
+            }
+            .frame(minWidth: 420, minHeight: 360)
+        }
     }
 
     private var header: some View {
@@ -222,7 +266,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(childMode ? "一起读英语吧！" : "英语伴读")
                 .font(.title3.weight(.bold))
-            Text("粘贴内容，或选择文本、Markdown、音频文件")
+            Text(lastReadingArticleText.isEmpty ? "粘贴内容，或选择文本、Markdown、音频文件" : "已恢复上次阅读，可从第 \(lastReadingWordIndex + 1) 个词继续")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -278,6 +322,10 @@ struct ContentView: View {
                 Label("中文翻译", systemImage: showsChineseTranslation ? "character.book.closed.fill" : "character.book.closed")
             }
             .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            Button { isShowingLibrary = true } label: {
+                Label("最近", systemImage: "clock.arrow.circlepath")
+            }
         } label: {
             Label("操作", systemImage: "ellipsis.circle")
         }
@@ -322,6 +370,11 @@ struct ContentView: View {
                 .buttonStyle(ReaderOutlinedButtonStyle())
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+
+            Button { isShowingLibrary = true } label: {
+                Label("最近阅读", systemImage: "clock.arrow.circlepath")
+            }
+            .buttonStyle(ReaderOutlinedButtonStyle())
         }
     }
 
@@ -644,7 +697,7 @@ struct ContentView: View {
     }
 
     private var audioControls: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 HStack(spacing: 10) {
                     Image(systemName: "waveform")
@@ -737,6 +790,18 @@ struct ContentView: View {
             }
 
             if !usesTTSForAudio {
+                Menu {
+                    Button { audio.skip(by: -15) } label: { Label("后退 15 秒", systemImage: "gobackward.15") }
+                    Button { audio.skip(by: 15) } label: { Label("前进 15 秒", systemImage: "goforward.15") }
+                    Button {
+                        if let start = loopStart {
+                            audio.setLoop(start: start, end: audio.currentTime)
+                            loopStart = nil
+                        } else { loopStart = audio.currentTime }
+                    } label: { Label(loopStart == nil ? "设 A 点" : "设 B 点", systemImage: "repeat") }
+                } label: { Label("精听", systemImage: "repeat") }
+                .buttonStyle(ReaderOutlinedButtonStyle())
+
                 Button { audio.togglePlayback() } label: {
                     Label(audio.isPlaying ? "暂停音频" : "播放音频", systemImage: audio.isPlaying ? "pause.fill" : "play.fill")
                         .frame(minWidth: 110)
@@ -745,10 +810,10 @@ struct ContentView: View {
                 .disabled(!audio.canControlPlayback)
             }
         }
-        .padding(16)
-        .background(ReaderTheme.mint.opacity(0.27), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(12)
+        .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(ReaderTheme.mint.opacity(0.65), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ReaderTheme.primary.opacity(0.12), lineWidth: 1)
         }
     }
 
@@ -787,6 +852,7 @@ struct ContentView: View {
     }
 
     private func seekTextReading(to wordIndex: Int) {
+        lastReadingWordIndex = wordIndex
         speech.seek(
             toWordAt: wordIndex,
             in: text,
@@ -854,6 +920,25 @@ struct ContentView: View {
         if enabled, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             text = EnglishTextFormatter.formatArticle(text)
             isEditingText = false
+        }
+    }
+
+    private func loadRecentArticles() {
+        guard let data = UserDefaults.standard.data(forKey: "recentReadingArticles"),
+              let values = try? JSONDecoder().decode([RecentArticle].self, from: data) else { return }
+        recentArticles = values
+    }
+
+    private func saveRecentArticle(text: String, position: Int) {
+        let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return }
+        let title = content.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).prefix(8).joined(separator: " ")
+        let item = RecentArticle(id: content, title: title, text: content, position: position, updatedAt: Date())
+        recentArticles.removeAll { $0.id == item.id }
+        recentArticles.insert(item, at: 0)
+        recentArticles = Array(recentArticles.prefix(12))
+        if let data = try? JSONEncoder().encode(recentArticles) {
+            UserDefaults.standard.set(data, forKey: "recentReadingArticles")
         }
     }
 
@@ -1140,4 +1225,12 @@ private struct ReadingToken {
         let word = String(String.UnicodeScalarView(cleaned)).trimmingCharacters(in: CharacterSet(charactersIn: "'-’"))
         lookupWord = word.range(of: "^[A-Za-z]+(?:['’-][A-Za-z]+)*$", options: .regularExpression) == nil ? nil : word
     }
+}
+
+private struct RecentArticle: Identifiable, Codable {
+    let id: String
+    let title: String
+    let text: String
+    let position: Int
+    let updatedAt: Date
 }

@@ -34,6 +34,7 @@ final class AudioPlaybackController: ObservableObject {
     private var whisperText = ""
     private var hasWhisperWordAlignment = true
     private var isSeeking = false
+    private var loopRange: ClosedRange<Double>?
 
     var hasAudio: Bool { player != nil }
     var canControlPlayback: Bool { hasAudio }
@@ -183,6 +184,11 @@ final class AudioPlaybackController: ObservableObject {
     }
 
     func skip(by seconds: Double) { seek(to: currentTime + seconds) }
+
+    func setLoop(start: Double, end: Double) {
+        guard end > start + 0.3 else { return }
+        loopRange = start...end
+    }
 
     /// Jumps to the whitespace token index the reader uses and resumes playback,
     /// so tapping a sentence's first word keeps the player and the visible text
@@ -337,6 +343,11 @@ final class AudioPlaybackController: ObservableObject {
                 guard let self else { return }
                 guard !self.isSeeking else { return }
                 self.currentTime = seconds
+                if let loopRange = self.loopRange, seconds >= loopRange.upperBound {
+                    self.seek(to: loopRange.lowerBound)
+                    if !self.isPlaying { self.togglePlayback() }
+                    return
+                }
                 if itemDuration.isFinite, itemDuration > 0 { self.duration = itemDuration }
                 self.updateCurrentWordIndex()
             }

@@ -10,7 +10,7 @@ struct PreferencesView: View {
     @Binding var wordPause: Double
     @Binding var fontStyle: DisplayFontStyle
     @Binding var fontSize: Double
-    @State private var isTTSExpanded = true
+    @State private var isTTSExpanded = false
     @State private var isElevenLabsExpanded = false
     @State private var isChildModeExpanded = false
     @State private var isTypographyExpanded = false

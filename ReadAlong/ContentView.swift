@@ -61,14 +61,13 @@ struct ContentView: View {
                 fontStyle: $fontStyle,
                 fontSize: $fontSize
             )
-            .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 400)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         } detail: {
             NavigationStack {
                 ZStack {
                     ReaderTheme.canvas.ignoresSafeArea()
                     VStack(spacing: 20) {
                         header
-                        translationOption
                         if isEditingText {
                             editor
                         } else {
@@ -274,6 +273,11 @@ struct ContentView: View {
                 Label("自动排版", systemImage: "text.alignleft")
             }
             .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            Button(action: toggleChineseTranslation) {
+                Label("中文翻译", systemImage: showsChineseTranslation ? "character.book.closed.fill" : "character.book.closed")
+            }
+            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } label: {
             Label("操作", systemImage: "ellipsis.circle")
         }
@@ -304,50 +308,52 @@ struct ContentView: View {
             }
             .buttonStyle(ReaderOutlinedButtonStyle())
             .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            if showsChineseTranslation {
+                Button(action: toggleChineseTranslation) {
+                    Label("中文", systemImage: "character.book.closed.fill")
+                }
+                .buttonStyle(ReaderFilledButtonStyle())
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } else {
+                Button(action: toggleChineseTranslation) {
+                    Label("中文", systemImage: "character.book.closed")
+                }
+                .buttonStyle(ReaderOutlinedButtonStyle())
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
         }
     }
 
     private var editor: some View {
-        TextEditor(text: $text)
-            .font(.system(size: fontSize, design: fontStyle.design))
-            .lineSpacing(max(2, fontSize * 0.22))
-            .padding(10)
-            .scrollContentBackground(.hidden)
-            .background(.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(ReaderTheme.primary.opacity(0.14), lineWidth: 1)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: $text)
+                .font(.system(size: fontSize, design: fontStyle.design))
+                .lineSpacing(max(2, fontSize * 0.22))
+                .padding(10)
+                .scrollContentBackground(.hidden)
 
-    private var translationOption: some View {
-        HStack(spacing: 10) {
-            Toggle("显示中文翻译", isOn: Binding(
-                get: { showsChineseTranslation },
-                set: { enabled in
-                    showsChineseTranslation = enabled
-                    if enabled && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        text = EnglishTextFormatter.formatArticle(text)
-                        isEditingText = false
-                    }
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("从这里开始阅读")
+                        .font(.title3.weight(.semibold))
+                    Text("粘贴一段英文、输入内容，或使用右上角“选择文件”导入文章和音频。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Label("导入音频后会自动生成可跟读的文本", systemImage: "waveform")
+                        .font(.caption)
+                        .foregroundStyle(ReaderTheme.primary)
                 }
-            ))
-            .toggleStyle(.checkbox)
-            .font(.subheadline.weight(.semibold))
-
-            Text(showsChineseTranslation ? "已开启：使用苹果本地翻译，中文显示在英文下方" : "勾选后立即在本机翻译并显示中英对照")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
+                .padding(28)
+                .allowsHitTesting(false)
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(ReaderTheme.primary.opacity(0.12), lineWidth: 1)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var readingView: some View {
@@ -420,8 +426,22 @@ struct ContentView: View {
                         .buttonStyle(ReaderOutlinedButtonStyle())
                     }
                 }
+
+                if !readingSentences.isEmpty {
+                    HStack(spacing: 7) {
+                        Image(systemName: "hand.tap")
+                            .foregroundStyle(ReaderTheme.primary)
+                        Text("单击句首朗读 · 单击单词标记 · 双击查看词义")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 8)
+                }
             }
-            .padding(16)
+            .padding(.vertical, 22)
+            .padding(.horizontal, 24)
+            .frame(maxWidth: 780, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -534,6 +554,13 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(.white.opacity(0.8), lineWidth: 1)
+        }
+        .shadow(color: ReaderTheme.primary.opacity(0.08), radius: 12, y: 4)
     }
 
     private var readingProgress: some View {
@@ -819,6 +846,15 @@ struct ContentView: View {
 
     private var selectedVoice: String? {
         selectedVoiceIdentifier.isEmpty ? nil : selectedVoiceIdentifier
+    }
+
+    private func toggleChineseTranslation() {
+        let enabled = !showsChineseTranslation
+        showsChineseTranslation = enabled
+        if enabled, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            text = EnglishTextFormatter.formatArticle(text)
+            isEditingText = false
+        }
     }
 
     private var activeSpokenWordIndex: Int? {

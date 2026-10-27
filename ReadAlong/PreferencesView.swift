@@ -10,7 +10,8 @@ struct PreferencesView: View {
     @Binding var wordPause: Double
     @Binding var fontStyle: DisplayFontStyle
     @Binding var fontSize: Double
-    @State private var isTTSExpanded = false
+    @State private var isTTSExpanded = true
+    @State private var isElevenLabsExpanded = false
     @State private var isChildModeExpanded = false
     @State private var isTypographyExpanded = false
     @State private var isLocalWhisperExpanded = false
@@ -18,81 +19,106 @@ struct PreferencesView: View {
 
     var body: some View {
         Form {
+            Section {
                 DisclosureGroup(isExpanded: $isTTSExpanded) {
-                    Picker("英语口音", selection: $accent) {
-                        ForEach(EnglishAccent.allCases) { item in
-                            Text(item.rawValue).tag(item)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("英语口音")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Picker("英语口音", selection: $accent) {
+                            ForEach(EnglishAccent.allCases) { item in
+                                Text(item.rawValue).tag(item)
+                            }
                         }
-                    }
-                    .pickerStyle(.segmented)
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(maxWidth: 260, alignment: .leading)
 
-                    Picker("系统声音", selection: $selectedVoiceIdentifier) {
-                        Text("自动选择高品质").tag("")
-                        ForEach(EnglishVoiceOption.available(for: accent)) { voice in
-                            Text(voice.displayName).tag(voice.identifier)
+                        Text("朗读引擎")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Picker("朗读引擎", selection: $elevenLabsSpeechConfiguration.isEnabled) {
+                            Text("系统语音").tag(false)
+                            Text("ElevenLabs").tag(true)
                         }
-                    }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(maxWidth: 260, alignment: .leading)
 
-                    Toggle("使用 ElevenLabs 在线语音", isOn: $elevenLabsSpeechConfiguration.isEnabled)
-                    if elevenLabsSpeechConfiguration.isEnabled {
-                        SecureField("ElevenLabs API Key", text: $elevenLabsSpeechConfiguration.apiKey)
-                        TextField("美式声音 Voice ID", text: $elevenLabsSpeechConfiguration.americanVoiceID)
-                        TextField("英式声音 Voice ID", text: $elevenLabsSpeechConfiguration.britishVoiceID)
-                        Button("使用免费方案示例声音（美式 Sarah / 英式 George）") {
-                            elevenLabsSpeechConfiguration.useSampleVoices()
+                        if elevenLabsSpeechConfiguration.isEnabled {
+                            DisclosureGroup("配置 ElevenLabs", isExpanded: $isElevenLabsExpanded) {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    settingField("API Key", secureValue: $elevenLabsSpeechConfiguration.apiKey)
+                                    settingField("美式 Voice ID", value: $elevenLabsSpeechConfiguration.americanVoiceID)
+                                    settingField("英式 Voice ID", value: $elevenLabsSpeechConfiguration.britishVoiceID)
+                                    Button("填入免费示例声音") {
+                                        elevenLabsSpeechConfiguration.useSampleVoices()
+                                    }
+                                    .buttonStyle(ReaderOutlinedButtonStyle())
+                                    settingField("模型 ID", value: $elevenLabsSpeechConfiguration.modelID)
+                                    if elevenLabsSpeechConfiguration.settings(for: accent) == nil {
+                                        Label("请填写 API Key 和当前口音对应的 Voice ID。", systemImage: "exclamationmark.triangle")
+                                            .font(.caption)
+                                            .foregroundStyle(.orange)
+                                    }
+                                    Text("API Key 保存在本机钥匙串；Voice ID 可从 My Voices 复制。")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.top, 4)
+                            }
+                        } else {
+                            Text("系统声音")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Picker("系统声音", selection: $selectedVoiceIdentifier) {
+                                Text("自动选择高品质").tag("")
+                                ForEach(EnglishVoiceOption.available(for: accent)) { voice in
+                                    Text(voice.displayName).tag(voice.identifier)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Label(
+                                hasHighQualityVoice ? "可使用已下载的高质量系统声音" : "可在系统设置中下载高质量英语声音",
+                                systemImage: hasHighQualityVoice ? "speaker.wave.2" : "arrow.down.circle"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .help("前往“系统设置 → 辅助功能 → 朗读内容 → 系统声音 → 管理声音”，下载 English (US) 或 English (UK) 的 Enhanced / Premium 声音。")
                         }
-                        .buttonStyle(ReaderOutlinedButtonStyle())
-                        TextField("模型 ID", text: $elevenLabsSpeechConfiguration.modelID)
-                        if elevenLabsSpeechConfiguration.settings(for: accent) == nil {
-                            Label("请填写 API Key 和当前口音对应的 Voice ID。", systemImage: "exclamationmark.triangle")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("语速")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            HStack {
+                                Slider(value: $speed, in: 0.18...0.68, step: 0.01)
+                                HStack(spacing: 2) {
+                                    TextField(
+                                        "",
+                                        value: speedMultiplier,
+                                        format: .number.precision(.fractionLength(0...2))
+                                    )
+                                    .textFieldStyle(.roundedBorder)
+                                    .multilineTextAlignment(.trailing)
+                                    .monospacedDigit()
+                                    .frame(width: 52)
+                                    .accessibilityLabel("语速倍率")
+                                    Text("×")
+                                }
+                                .frame(width: 64, alignment: .trailing)
+                            }
                         }
-                        Text("API Key 在 ElevenLabs 的 Developers → API Keys 创建；Voice ID 可从 My Voices 中复制。免费方案的 Voice Library 声音不能通过 API 调用。")
+                        Text(elevenLabsSpeechConfiguration.isEnabled
+                            ? "在线语音已启用；详细参数在“配置 ElevenLabs”中调整。"
+                            : "点词与文章朗读使用设备声音。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Label(
-                                hasHighQualityVoice
-                                    ? "可在系统设置中下载更多 Enhanced 或 Premium 英语声音。"
-                                    : "尚未安装 Enhanced 或 Premium 英语声音。",
-                                systemImage: hasHighQualityVoice ? "speaker.wave.2" : "arrow.down.circle"
-                            )
-                            .font(.subheadline.weight(.medium))
-                            Text("前往“系统设置 → 辅助功能 → 朗读内容 → 系统声音 → 管理声音”，下载 English (US) 或 English (UK) 的 Enhanced / Premium 声音。下载完成后重新打开本应用。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    LabeledContent("语速") {
-                        HStack {
-                            Slider(value: $speed, in: 0.18...0.68, step: 0.01)
-                            HStack(spacing: 2) {
-                                TextField(
-                                    "",
-                                    value: speedMultiplier,
-                                    format: .number.precision(.fractionLength(0...2))
-                                )
-                                .textFieldStyle(.roundedBorder)
-                                .multilineTextAlignment(.trailing)
-                                .monospacedDigit()
-                                .frame(width: 52)
-                                .accessibilityLabel("语速倍率")
-                                Text("×")
-                            }
-                            .frame(width: 64, alignment: .trailing)
-                        }
-                    }
-                    Text(elevenLabsSpeechConfiguration.isEnabled
-                        ? "API Key 仅保存在本机钥匙串；文章、点词与儿童模式文本会发送至 ElevenLabs 并消耗额度。连接失败时自动使用系统声音。"
-                        : "点词与文章朗读使用所选系统声音。")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 } label: {
                     Label("TTS 发音", systemImage: "speaker.wave.2.fill")
                         .font(.body.weight(.semibold))
@@ -101,6 +127,35 @@ struct PreferencesView: View {
                         .onTapGesture { isTTSExpanded.toggle() }
                 }
 
+                DisclosureGroup(isExpanded: $isTypographyExpanded) {
+                    Picker("字体", selection: $fontStyle) {
+                        ForEach(DisplayFontStyle.allCases) { style in
+                            Text(style.rawValue).tag(style)
+                        }
+                    }
+                    LabeledContent("字号") {
+                        HStack {
+                            Slider(value: $fontSize, in: 14...34, step: 1)
+                            Text("\(Int(fontSize)) pt")
+                                .monospacedDigit()
+                                .frame(width: 52, alignment: .trailing)
+                        }
+                    }
+                    Text("The quick brown fox jumps over the lazy dog.")
+                        .font(.system(size: min(fontSize, 26), design: fontStyle.design))
+                        .padding(.vertical, 6)
+                } label: {
+                    Label("文字显示", systemImage: "textformat.size")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture { isTypographyExpanded.toggle() }
+                }
+            } header: {
+                Label("常用阅读设置", systemImage: "slider.horizontal.3")
+            }
+
+            Section {
                 DisclosureGroup(isExpanded: $isChildModeExpanded) {
                         Toggle("启用儿童模式", isOn: $childMode)
                         if childMode {
@@ -139,32 +194,11 @@ struct PreferencesView: View {
                             .contentShape(Rectangle())
                             .onTapGesture { isChildModeExpanded.toggle() }
                 }
+            } header: {
+                Label("学习模式", systemImage: "graduationcap")
+            }
 
-                DisclosureGroup(isExpanded: $isTypographyExpanded) {
-                    Picker("字体", selection: $fontStyle) {
-                        ForEach(DisplayFontStyle.allCases) { style in
-                            Text(style.rawValue).tag(style)
-                        }
-                    }
-                    LabeledContent("字号") {
-                        HStack {
-                            Slider(value: $fontSize, in: 14...34, step: 1)
-                            Text("\(Int(fontSize)) pt")
-                                .monospacedDigit()
-                                .frame(width: 52, alignment: .trailing)
-                        }
-                    }
-                    Text("The quick brown fox jumps over the lazy dog.")
-                        .font(.system(size: min(fontSize, 26), design: fontStyle.design))
-                        .padding(.vertical, 6)
-                } label: {
-                    Label("文字显示", systemImage: "textformat.size")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .onTapGesture { isTypographyExpanded.toggle() }
-                }
-
+            Section {
                 DisclosureGroup(isExpanded: $isLocalWhisperExpanded) {
                     Toggle("优先使用本地 Whisper（仅 macOS）", isOn: $localWhisperConfiguration.localWhisperEnabled)
                     if localWhisperConfiguration.localWhisperEnabled {
@@ -232,6 +266,9 @@ struct PreferencesView: View {
                         .contentShape(Rectangle())
                         .onTapGesture { isAboutExpanded.toggle() }
                 }
+            } header: {
+                Label("高级与关于", systemImage: "gearshape.2")
+            }
             }
         .formStyle(.grouped)
         .font(.body)
@@ -254,6 +291,28 @@ struct PreferencesView: View {
                 speed = min(max(multiplier * 0.45, 0.18), 0.68)
             }
         )
+    }
+
+    @ViewBuilder
+    private func settingField(_ title: String, value: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            TextField(title, text: value)
+                .textFieldStyle(.roundedBorder)
+        }
+    }
+
+    @ViewBuilder
+    private func settingField(_ title: String, secureValue: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            SecureField(title, text: secureValue)
+                .textFieldStyle(.roundedBorder)
+        }
     }
 
     private var wordPauseInput: Binding<Double> {

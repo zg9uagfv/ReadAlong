@@ -21,7 +21,7 @@ struct ContentView: View {
     @State private var localWhisperRequestID = UUID()
     @AppStorage("childModeEnabled") private var childMode = false
     @AppStorage("childWordPause") private var wordPause = 0.5
-    @State private var fontSize = 20.0
+    @State private var fontSize = 18.0
     @State private var fontStyle = DisplayFontStyle.system
     @State private var highlightedTokens: Set<String> = []
     @State private var selectedVoiceIdentifier = ""
@@ -350,30 +350,11 @@ struct ContentView: View {
                 Label("选择文件", systemImage: "doc.badge.plus")
             }
             .buttonStyle(ReaderOutlinedButtonStyle())
-
-            Button { text = EnglishTextFormatter.formatArticle(text) } label: {
-                Label("自动排版", systemImage: "text.alignleft")
-            }
-            .buttonStyle(ReaderOutlinedButtonStyle())
-            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            if showsChineseTranslation {
-                Button(action: toggleChineseTranslation) {
-                    Label("中文", systemImage: "character.book.closed.fill")
-                }
-                .buttonStyle(ReaderFilledButtonStyle())
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            } else {
-                Button(action: toggleChineseTranslation) {
-                    Label("中文", systemImage: "character.book.closed")
-                }
-                .buttonStyle(ReaderOutlinedButtonStyle())
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-
-            Button { isShowingLibrary = true } label: {
-                Label("最近阅读", systemImage: "clock.arrow.circlepath")
-            }
+            Menu {
+                Button("自动排版") { text = EnglishTextFormatter.formatArticle(text) }
+                Button(showsChineseTranslation ? "关闭中文" : "显示中文", action: toggleChineseTranslation)
+                Button("最近阅读") { isShowingLibrary = true }
+            } label: { Label("更多", systemImage: "ellipsis.circle") }
             .buttonStyle(ReaderOutlinedButtonStyle())
         }
     }
@@ -439,12 +420,12 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 260)
         } else {
-            LazyVStack(alignment: .leading, spacing: max(12, fontSize * 0.65)) {
+            LazyVStack(alignment: .leading, spacing: max(8, fontSize * 0.42)) {
                 ForEach(readingSentences.indices, id: \.self) { sentenceIndex in
                     let sentence = readingSentences[sentenceIndex]
                     let tokens = sentence.tokens
                     VStack(alignment: .leading, spacing: 6) {
-                        WrappingLayout(spacing: max(3, fontSize * 0.18)) {
+                        WrappingLayout(spacing: max(2, fontSize * 0.12)) {
                             ForEach(tokens.indices, id: \.self) { tokenIndex in
                                 readingTokenView(
                                     tokens[tokenIndex],
@@ -491,9 +472,9 @@ struct ContentView: View {
                     .padding(.top, 8)
                 }
             }
-            .padding(.vertical, 22)
-            .padding(.horizontal, 24)
-            .frame(maxWidth: 780, alignment: .leading)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 20)
+            .frame(maxWidth: 700, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
         }
     }
@@ -507,7 +488,7 @@ struct ContentView: View {
             .fontWeight(isCurrentlySpoken ? .bold : .regular)
             .foregroundStyle(hasBeenRead ? Color.blue : Color.primary)
             .padding(.horizontal, 2)
-            .padding(.vertical, 3)
+            .padding(.vertical, 1)
             .background(
                 isCurrentlySpoken
                     ? Color.green.opacity(0.60)
@@ -594,26 +575,31 @@ struct ContentView: View {
     }
 
     private var controls: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 6) {
             if audio.hasAudio {
                 audioControls
                 if usesTTSForAudio {
-                    readingProgress
-                    ttsControls
+                    compactTextControls
                 }
             } else if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                readingProgress
-                ttsControls
+                compactTextControls
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
+        .padding(8)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(.white.opacity(0.8), lineWidth: 1)
         }
-        .shadow(color: ReaderTheme.primary.opacity(0.08), radius: 12, y: 4)
+        .shadow(color: ReaderTheme.primary.opacity(0.05), radius: 6, y: 2)
+    }
+
+    private var compactTextControls: some View {
+        HStack(spacing: 12) {
+            readingProgress
+            ttsControls
+        }
     }
 
     private var readingProgress: some View {
@@ -622,7 +608,7 @@ struct ContentView: View {
             wordCount
         )
         let maximumWordIndex = max(0, wordCount - 1)
-        return VStack(alignment: .leading, spacing: 7) {
+        return VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Label("文章朗读进度", systemImage: "text.line.first.and.arrowtriangle.forward")
                     .font(.subheadline.weight(.medium))
@@ -659,12 +645,13 @@ struct ContentView: View {
                 .accessibilityValue("已定位到第 \(completedWords) 个词，共 \(wordCount) 个单词；拖动后从目标位置开始或继续朗读")
             }
         }
-        .padding(14)
-        .background(ReaderTheme.sunshine.opacity(0.20), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(ReaderTheme.sunshine.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var ttsControls: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 6) {
             Button {
                 if speech.isSpeaking {
                     speech.stop()

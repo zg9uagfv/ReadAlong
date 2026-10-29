@@ -526,7 +526,7 @@ struct ContentView: View {
             )
             .popover(item: wordSelectionBinding(for: id), arrowEdge: .bottom) { selection in
                 WordDetailView(word: selection.word, accent: accent) {
-                    speech.speakWord(selection.word, accent: accent, voiceIdentifier: selectedVoice, elevenLabsSettings: elevenLabsSettings)
+                            speech.speakWord(selection.word, accent: accent, voiceIdentifier: selectedVoice, elevenLabsSettings: elevenLabsSettings, deepgramSettings: deepgramSettings)
                 }
             }
             .help(tokenHelp(isSentenceStart: isSentenceStart, canLookUp: word != nil))
@@ -833,7 +833,8 @@ struct ContentView: View {
                 childMode: childMode,
                 wordPause: wordPause,
                 voiceIdentifier: selectedVoice,
-                elevenLabsSettings: elevenLabsSettings
+                elevenLabsSettings: elevenLabsSettings,
+                deepgramSettings: deepgramSettings
             )
         }
     }
@@ -848,12 +849,17 @@ struct ContentView: View {
             childMode: childMode,
             wordPause: wordPause,
             voiceIdentifier: selectedVoice,
-            elevenLabsSettings: elevenLabsSettings
+            elevenLabsSettings: elevenLabsSettings,
+            deepgramSettings: deepgramSettings
         )
     }
 
     private var elevenLabsSettings: ElevenLabsSpeechSettings? {
         elevenLabsSpeechConfiguration.settings(for: accent)
+    }
+
+    private var deepgramSettings: DeepgramSpeechSettings? {
+        elevenLabsSpeechConfiguration.deepgramSettings()
     }
 
     private func updateAudioPlaybackRateInput(_ input: String) {

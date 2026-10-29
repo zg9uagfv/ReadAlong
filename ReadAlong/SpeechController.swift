@@ -92,6 +92,7 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
     private var normalBaseWordIndex = 0
     private var selectedVoiceIdentifier: String?
     private var elevenLabsSettings: ElevenLabsSpeechSettings?
+    private var deepgramSettings: DeepgramSpeechSettings?
     private var elevenLabsPlayer: AVAudioPlayer?
     private var elevenLabsTask: Task<Void, Never>?
     private var elevenLabsActiveChildSynthesisTask: Task<ElevenLabsSpeechService.TimedAudio, Error>?
@@ -114,7 +115,8 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
         childMode: Bool = false,
         wordPause: Double = 1.0,
         voiceIdentifier: String? = nil,
-        elevenLabsSettings: ElevenLabsSpeechSettings? = nil
+        elevenLabsSettings: ElevenLabsSpeechSettings? = nil,
+        deepgramSettings: DeepgramSpeechSettings? = nil
     ) {
         let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
@@ -131,6 +133,7 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
         currentSpokenWordIndex = nil
         selectedVoiceIdentifier = voiceIdentifier
         self.elevenLabsSettings = elevenLabsSettings
+        self.deepgramSettings = deepgramSettings
 
         if childMode {
             childWords = content.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).map(String.init)
@@ -139,10 +142,11 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
             childAccent = accent
             childSpeed = speed
             isChildSequenceActive = true
-            if elevenLabsSettings != nil { startElevenLabsChildChunk() }
+            if elevenLabsSettings != nil || deepgramSettings != nil { startElevenLabsChildChunk() }
             else { speakNextChildWord() }
         } else {
             if let elevenLabsSettings { startElevenLabsSpeech(content, accent: accent, speed: speed, settings: elevenLabsSettings, baseWordIndex: 0) }
+            else if let deepgramSettings { startDeepgramSpeech(content, accent: accent, speed: speed, settings: deepgramSettings, baseWordIndex: 0) }
             else { startNormalSpeech(content, accent: accent, speed: speed, baseWordIndex: 0) }
         }
     }
@@ -150,7 +154,7 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
     func updatePlaybackSettings(accent: EnglishAccent, speed: Double, wordPause: Double, voiceIdentifier: String?) {
         guard isSpeaking else { return }
         selectedVoiceIdentifier = voiceIdentifier
-        if elevenLabsSettings != nil {
+        if elevenLabsSettings != nil || deepgramSettings != nil {
             if isChildSequenceActive {
                 let synthesisChanged = childSpeed != speed || childWordPause != wordPause
                 childAccent = accent
@@ -194,7 +198,7 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
         }
     }
 
-    func speakWord(_ word: String, accent: EnglishAccent, voiceIdentifier: String? = nil, elevenLabsSettings: ElevenLabsSpeechSettings? = nil) {
+    func speakWord(_ word: String, accent: EnglishAccent, voiceIdentifier: String? = nil, elevenLabsSettings: ElevenLabsSpeechSettings? = nil, deepgramSettings: DeepgramSpeechSettings? = nil) {
         resetChildSequence()
         isNormalSequenceActive = false
         activeUtterances.removeAll()
@@ -207,8 +211,13 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
         currentSpokenWordIndex = nil
         selectedVoiceIdentifier = voiceIdentifier
         self.elevenLabsSettings = elevenLabsSettings
+        self.deepgramSettings = deepgramSettings
         if let elevenLabsSettings {
             startElevenLabsSpeech(word, accent: accent, speed: 0.42, settings: elevenLabsSettings, baseWordIndex: 0)
+            return
+        }
+        if let deepgramSettings {
+            startDeepgramSpeech(word, accent: accent, speed: 0.42, settings: deepgramSettings, baseWordIndex: 0)
             return
         }
         // 单词点读是词典式发音，使用标准强读；弱读只用于句中有上下文的儿童模式逐词朗读。
@@ -228,7 +237,7 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
             }
             return
         }
-        if isChildSequenceActive, elevenLabsSettings != nil {
+        if isChildSequenceActive, elevenLabsSettings != nil || deepgramSettings != nil {
             if isPaused {
                 isPaused = false
                 if elevenLabsTask == nil { scheduleNextElevenLabsChildChunk() }
@@ -267,7 +276,8 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
         childMode: Bool,
         wordPause: Double,
         voiceIdentifier: String?,
-        elevenLabsSettings: ElevenLabsSpeechSettings? = nil
+        elevenLabsSettings: ElevenLabsSpeechSettings? = nil,
+        deepgramSettings: DeepgramSpeechSettings? = nil
     ) {
         let words = text
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -288,6 +298,7 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
         currentSpokenWordIndex = index
         selectedVoiceIdentifier = voiceIdentifier
         self.elevenLabsSettings = elevenLabsSettings
+        self.deepgramSettings = deepgramSettings
 
         if childMode {
             childWords = words
@@ -296,11 +307,12 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
             childAccent = accent
             childSpeed = speed
             isChildSequenceActive = true
-            if elevenLabsSettings != nil { startElevenLabsChildChunk() }
+            if elevenLabsSettings != nil || deepgramSettings != nil { startElevenLabsChildChunk() }
             else { speakNextChildWord() }
         } else {
             let content = words[index...].joined(separator: " ")
             if let elevenLabsSettings { startElevenLabsSpeech(content, accent: accent, speed: speed, settings: elevenLabsSettings, baseWordIndex: index) }
+            else if let deepgramSettings { startDeepgramSpeech(content, accent: accent, speed: speed, settings: deepgramSettings, baseWordIndex: index) }
             else { startNormalSpeech(content, accent: accent, speed: speed, baseWordIndex: index) }
         }
     }
@@ -312,6 +324,7 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
         synthesizer.stopSpeaking(at: .immediate)
         stopElevenLabsPlayback()
         elevenLabsSettings = nil
+        deepgramSettings = nil
         isSpeaking = false
         isPaused = false
         isReadingArticle = false
@@ -422,7 +435,7 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
 
     private func startElevenLabsChildChunk() {
         guard isChildSequenceActive, !isPaused,
-              let settings = elevenLabsSettings,
+              (elevenLabsSettings != nil || deepgramSettings != nil),
               nextChildWordIndex < childWords.count else { return }
         pendingNextWord = nil
         let start = nextChildWordIndex
@@ -444,11 +457,16 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
             do {
                 let audio: ElevenLabsSpeechService.TimedAudio
                 if let prefetched { audio = try await prefetched.value }
-                else {
+                else if let settings = elevenLabsSettings {
                     audio = try await ElevenLabsSpeechService.synthesizeChildWords(
                         words, pause: childWordPause, speed: childSpeed, settings: settings,
                         previousText: previousText, nextText: nextText
                     )
+                } else if let settings = deepgramSettings {
+                    let data = try await DeepgramSpeechService.synthesize(text: words.joined(separator: " "), speed: childSpeed, settings: settings)
+                    audio = ElevenLabsSpeechService.TimedAudio(data: data, wordStartTimes: [], wordPausesApplied: false)
+                } else {
+                    throw ElevenLabsSpeechError.invalidResponse
                 }
                 guard !Task.isCancelled, let self, self.elevenLabsRequestID == requestID else { return }
                 self.elevenLabsActiveChildSynthesisTask = nil
@@ -457,7 +475,7 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
                 self.elevenLabsWordStartTimes = audio.wordStartTimes
                 self.elevenLabsChunkBaseWordIndex = start
                 if !audio.wordPausesApplied {
-                    self.lastError = "ElevenLabs 时间戳无法用于插入词间停顿；本段将自然连读。"
+                    self.lastError = "当前在线语音不支持逐词时间戳；本段将自然连读。"
                 }
                 player.delegate = self
                 self.elevenLabsPlayer = player
@@ -466,12 +484,13 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
                     guard player.play() else { throw ElevenLabsSpeechError.invalidResponse }
                 }
                 self.startElevenLabsProgressTracking()
-                self.prefetchNextElevenLabsChildChunk(settings: settings)
+                if let settings = self.elevenLabsSettings { self.prefetchNextElevenLabsChildChunk(settings: settings) }
             } catch {
                 guard !Task.isCancelled, let self, self.elevenLabsRequestID == requestID else { return }
                 self.lastError = "\(error.localizedDescription) 已改用系统语音。"
                 self.stopElevenLabsPlayback()
                 self.elevenLabsSettings = nil
+                self.deepgramSettings = nil
                 self.nextChildWordIndex = start
                 self.speakNextChildWord()
             }
@@ -598,6 +617,37 @@ final class SpeechController: NSObject, ObservableObject, AVSpeechSynthesizerDel
                 self.lastError = "\(error.localizedDescription) 已改用系统语音。"
                 self.stopElevenLabsPlayback()
                 self.elevenLabsSettings = nil
+                self.startNormalSpeech(text, accent: accent, speed: speed, baseWordIndex: baseWordIndex)
+            }
+        }
+    }
+
+    private func startDeepgramSpeech(
+        _ text: String,
+        accent: EnglishAccent,
+        speed: Double,
+        settings: DeepgramSpeechSettings,
+        baseWordIndex: Int
+    ) {
+        stopElevenLabsPlayback()
+        let requestID = UUID()
+        elevenLabsRequestID = requestID
+        isNormalSequenceActive = !isChildSequenceActive
+        elevenLabsTask = Task { [weak self] in
+            do {
+                let data = try await DeepgramSpeechService.synthesize(text: text, speed: speed, settings: settings)
+                guard !Task.isCancelled, let self, self.elevenLabsRequestID == requestID else { return }
+                let player = try AVAudioPlayer(data: data)
+                player.delegate = self
+                self.elevenLabsPlayer = player
+                player.prepareToPlay()
+                guard player.play() else { throw ElevenLabsSpeechError.invalidResponse }
+            } catch {
+                guard !Task.isCancelled, let self, self.elevenLabsRequestID == requestID else { return }
+                self.lastError = "\(error.localizedDescription) 已改用系统语音。"
+                self.stopElevenLabsPlayback()
+                self.elevenLabsSettings = nil
+                self.deepgramSettings = nil
                 self.startNormalSpeech(text, accent: accent, speed: speed, baseWordIndex: baseWordIndex)
             }
         }

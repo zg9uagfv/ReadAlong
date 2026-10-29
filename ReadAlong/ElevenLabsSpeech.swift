@@ -8,12 +8,31 @@ struct ElevenLabsSpeechSettings: Sendable {
     let modelID: String
 }
 
+enum SpeechProvider: String, CaseIterable, Identifiable {
+    case system = "system"
+    case elevenLabs = "elevenLabs"
+    case deepgram = "deepgram"
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .system: "系统语音"
+        case .elevenLabs: "ElevenLabs"
+        case .deepgram: "Deepgram"
+        }
+    }
+}
+
+struct DeepgramSpeechSettings: Sendable {
+    let apiKey: String
+    let modelID: String
+}
+
 @MainActor
 final class ElevenLabsSpeechConfiguration: ObservableObject {
     static let sampleAmericanVoiceID = "EXAVITQu4vr4xnSDxMaL" // Sarah
     static let sampleBritishVoiceID = "JBFqnCBsd6RMkjVDRZzb" // George
 
-    @Published var isEnabled: Bool { didSet { save() } }
+    @Published var provider: SpeechProvider { didSet { save() } }
     @Published var modelID: String { didSet { save() } }
     @Published var americanVoiceID: String { didSet { save() } }
     @Published var britishVoiceID: String { didSet { save() } }
@@ -24,16 +43,32 @@ final class ElevenLabsSpeechConfiguration: ObservableObject {
             keychainSaveQueue.async { ElevenLabsSpeechKeychain.save(value) }
         }
     }
+    @Published var deepgramAPIKey: String {
+        didSet {
+            guard !isRestoringDeepgramKey else { return }
+            let value = deepgramAPIKey
+            deepgramKeychainSaveQueue.async { DeepgramSpeechKeychain.save(value) }
+        }
+    }
+    @Published var deepgramModelID: String { didSet { save() } }
     private var isRestoringAPIKey = false
+    private var isRestoringDeepgramKey = false
     private let keychainSaveQueue = DispatchQueue(label: "ReadAlong.ElevenLabs.KeychainSave", qos: .utility)
+    private let deepgramKeychainSaveQueue = DispatchQueue(label: "ReadAlong.Deepgram.KeychainSave", qos: .utility)
 
     init() {
         let defaults = UserDefaults.standard
-        isEnabled = defaults.bool(forKey: "elevenLabsSpeechEnabled")
+        if let savedProvider = defaults.string(forKey: "speechProvider"), let provider = SpeechProvider(rawValue: savedProvider) {
+            self.provider = provider
+        } else {
+            provider = defaults.bool(forKey: "elevenLabsSpeechEnabled") ? .elevenLabs : .system
+        }
         modelID = defaults.string(forKey: "elevenLabsSpeechModelID") ?? "eleven_flash_v2_5"
         americanVoiceID = defaults.string(forKey: "elevenLabsAmericanVoiceID") ?? Self.sampleAmericanVoiceID
         britishVoiceID = defaults.string(forKey: "elevenLabsBritishVoiceID") ?? Self.sampleBritishVoiceID
         apiKey = ""
+        deepgramAPIKey = ""
+        deepgramModelID = defaults.string(forKey: "deepgramSpeechModelID") ?? "aura-2-thalia-en"
         Task.detached(priority: .utility) { [weak self] in
             let savedKey = ElevenLabsSpeechKeychain.load()
             await MainActor.run {
@@ -41,6 +76,15 @@ final class ElevenLabsSpeechConfiguration: ObservableObject {
                 self.isRestoringAPIKey = true
                 self.apiKey = savedKey
                 self.isRestoringAPIKey = false
+            }
+        }
+        Task.detached(priority: .utility) { [weak self] in
+            let savedKey = DeepgramSpeechKeychain.load()
+            await MainActor.run {
+                guard let self, let savedKey, self.deepgramAPIKey.isEmpty else { return }
+                self.isRestoringDeepgramKey = true
+                self.deepgramAPIKey = savedKey
+                self.isRestoringDeepgramKey = false
             }
         }
     }
@@ -53,7 +97,7 @@ final class ElevenLabsSpeechConfiguration: ObservableObject {
     }
 
     func settings(for accent: EnglishAccent) -> ElevenLabsSpeechSettings? {
-        guard isEnabled, isConfigured else { return nil }
+        guard provider == .elevenLabs, isConfigured else { return nil }
         let selectedVoiceID = accent == .american ? americanVoiceID : britishVoiceID
         let voiceID = selectedVoiceID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !voiceID.isEmpty else { return nil }
@@ -64,6 +108,13 @@ final class ElevenLabsSpeechConfiguration: ObservableObject {
         )
     }
 
+    func deepgramSettings() -> DeepgramSpeechSettings? {
+        let key = deepgramAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = deepgramModelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard provider == .deepgram, !key.isEmpty, !model.isEmpty else { return nil }
+        return DeepgramSpeechSettings(apiKey: key, modelID: model)
+    }
+
     func useSampleVoices() {
         americanVoiceID = Self.sampleAmericanVoiceID
         britishVoiceID = Self.sampleBritishVoiceID
@@ -71,10 +122,73 @@ final class ElevenLabsSpeechConfiguration: ObservableObject {
 
     private func save() {
         let defaults = UserDefaults.standard
-        defaults.set(isEnabled, forKey: "elevenLabsSpeechEnabled")
+        defaults.set(provider.rawValue, forKey: "speechProvider")
+        defaults.set(provider == .elevenLabs, forKey: "elevenLabsSpeechEnabled")
         defaults.set(modelID, forKey: "elevenLabsSpeechModelID")
         defaults.set(americanVoiceID, forKey: "elevenLabsAmericanVoiceID")
         defaults.set(britishVoiceID, forKey: "elevenLabsBritishVoiceID")
+        defaults.set(deepgramModelID, forKey: "deepgramSpeechModelID")
+    }
+}
+
+enum DeepgramSpeechService {
+    static func synthesize(text: String, speed: Double, settings: DeepgramSpeechSettings) async throws -> Data {
+        var components = URLComponents(string: "https://api.deepgram.com/v1/speak")!
+        let normalizedSpeed = min(0.68, max(0.18, speed))
+        let apiSpeed = 0.7 + (normalizedSpeed - 0.18) / 0.5 * 0.8
+        let modelQuery = URLQueryItem(name: "model", value: settings.modelID)
+        let encodingQuery = URLQueryItem(name: "encoding", value: "mp3")
+        let speedQuery = URLQueryItem(name: "speed", value: String(apiSpeed))
+        components.queryItems = [modelQuery, encodingQuery, speedQuery]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.setValue("Token \(settings.apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["text": text])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw DeepgramSpeechError.invalidResponse }
+        guard (200..<300).contains(http.statusCode),
+              http.mimeType == "audio/mpeg" || http.mimeType == "audio/mp3" else {
+            let message = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+            throw DeepgramSpeechError.requestFailed(statusCode: http.statusCode, message: message)
+        }
+        return data
+    }
+}
+
+enum DeepgramSpeechError: LocalizedError {
+    case invalidResponse
+    case requestFailed(statusCode: Int, message: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse:
+            return "Deepgram 未返回有效音频。"
+        case .requestFailed(let statusCode, let message):
+            if statusCode == 401 { return "Deepgram API Key 无效或已过期。" }
+            if statusCode == 429 { return "Deepgram 请求过于频繁或额度不足。" }
+            return "Deepgram 请求失败（HTTP \(statusCode)）：\(message)"
+        }
+    }
+}
+
+private enum DeepgramSpeechKeychain {
+    private static let service = "ReadAlong.DeepgramSpeech"
+    static func save(_ value: String) {
+        let data = Data(value.utf8)
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "apiKey"]
+        SecItemDelete(query as CFDictionary)
+        guard !value.isEmpty else { return }
+        var item = query
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        SecItemAdd(item as CFDictionary, nil)
+    }
+    static func load() -> String? {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "apiKey", kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }
 

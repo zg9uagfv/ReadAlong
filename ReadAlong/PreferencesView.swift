@@ -11,11 +11,56 @@ struct PreferencesView: View {
     @Binding var fontStyle: DisplayFontStyle
     @Binding var fontSize: Double
     @State private var isTTSExpanded = false
-    @State private var isElevenLabsExpanded = false
+    @State private var isElevenLabsExpanded = true
+    @State private var isUsingCustomDeepgramModel = false
     @State private var isChildModeExpanded = false
     @State private var isTypographyExpanded = false
     @State private var isLocalWhisperExpanded = false
     @State private var isAboutExpanded = false
+
+    private let deepgramVoicePresets: [DeepgramVoicePreset] = [
+        .init(id: "aura-2-thalia-en", name: "Thalia · 清晰、有活力"),
+        .init(id: "aura-2-andromeda-en", name: "Andromeda · 随和、自然"),
+        .init(id: "aura-2-helena-en", name: "Helena · 亲切、温暖"),
+        .init(id: "aura-2-apollo-en", name: "Apollo · 自信、自然"),
+        .init(id: "aura-2-arcas-en", name: "Arcas · 平稳、清晰"),
+        .init(id: "aura-2-aries-en", name: "Aries · 温暖、有活力"),
+        .init(id: "aura-2-amalthea-en", name: "Amalthea"),
+        .init(id: "aura-2-asteria-en", name: "Asteria"),
+        .init(id: "aura-2-athena-en", name: "Athena"),
+        .init(id: "aura-2-atlas-en", name: "Atlas"),
+        .init(id: "aura-2-aurora-en", name: "Aurora"),
+        .init(id: "aura-2-callisto-en", name: "Callisto"),
+        .init(id: "aura-2-cora-en", name: "Cora"),
+        .init(id: "aura-2-cordelia-en", name: "Cordelia"),
+        .init(id: "aura-2-delia-en", name: "Delia"),
+        .init(id: "aura-2-draco-en", name: "Draco"),
+        .init(id: "aura-2-electra-en", name: "Electra"),
+        .init(id: "aura-2-hera-en", name: "Hera"),
+        .init(id: "aura-2-iris-en", name: "Iris"),
+        .init(id: "aura-2-luna-en", name: "Luna"),
+        .init(id: "aura-2-odysseus-en", name: "Odysseus"),
+        .init(id: "aura-2-orion-en", name: "Orion"),
+        .init(id: "aura-2-orpheus-en", name: "Orpheus"),
+        .init(id: "aura-2-zeus-en", name: "Zeus")
+    ]
+
+    private var deepgramVoiceSelection: Binding<String> {
+        Binding(
+            get: {
+                !isUsingCustomDeepgramModel
+                    && deepgramVoicePresets.contains(where: { $0.id == elevenLabsSpeechConfiguration.deepgramModelID })
+                    ? elevenLabsSpeechConfiguration.deepgramModelID
+                    : "custom"
+            },
+            set: { selected in
+                isUsingCustomDeepgramModel = selected == "custom"
+                if selected != "custom" {
+                    elevenLabsSpeechConfiguration.deepgramModelID = selected
+                }
+            }
+        )
+    }
 
     var body: some View {
         Form {
@@ -37,15 +82,15 @@ struct PreferencesView: View {
                         Text("朗读引擎")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                        Picker("朗读引擎", selection: $elevenLabsSpeechConfiguration.isEnabled) {
-                            Text("系统语音").tag(false)
-                            Text("ElevenLabs").tag(true)
+                        Picker("朗读引擎", selection: $elevenLabsSpeechConfiguration.provider) {
+                            ForEach(SpeechProvider.allCases) { provider in
+                                Text(provider.title).tag(provider)
+                            }
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                        .pickerStyle(.menu)
                         .frame(maxWidth: 260, alignment: .leading)
 
-                        if elevenLabsSpeechConfiguration.isEnabled {
+                        if elevenLabsSpeechConfiguration.provider == .elevenLabs {
                             DisclosureGroup("配置 ElevenLabs", isExpanded: $isElevenLabsExpanded) {
                                 VStack(alignment: .leading, spacing: 10) {
                                     settingField("API Key", secureValue: $elevenLabsSpeechConfiguration.apiKey)
@@ -62,6 +107,36 @@ struct PreferencesView: View {
                                             .foregroundStyle(.orange)
                                     }
                                     Text("API Key 保存在本机钥匙串；Voice ID 可从 My Voices 复制。")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.top, 4)
+                            }
+                        } else if elevenLabsSpeechConfiguration.provider == .deepgram {
+                            DisclosureGroup("配置 Deepgram", isExpanded: $isElevenLabsExpanded) {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    settingField("API Key", secureValue: $elevenLabsSpeechConfiguration.deepgramAPIKey)
+                                    Picker("Deepgram 声音", selection: deepgramVoiceSelection) {
+                                        ForEach(deepgramVoicePresets) { voice in
+                                            Text(voice.name).tag(voice.id)
+                                        }
+                                        Divider()
+                                        Text("自定义模型 ID…").tag("custom")
+                                    }
+                                    .pickerStyle(.menu)
+                                    if deepgramVoiceSelection.wrappedValue == "custom" {
+                                        settingField("模型 / Voice ID", value: $elevenLabsSpeechConfiguration.deepgramModelID)
+                                    } else {
+                                        Text(elevenLabsSpeechConfiguration.deepgramModelID)
+                                            .font(.caption.monospaced())
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if elevenLabsSpeechConfiguration.deepgramSettings() == nil {
+                                        Label("请填写 Deepgram API Key 和模型名称。", systemImage: "exclamationmark.triangle")
+                                            .font(.caption)
+                                            .foregroundStyle(.orange)
+                                    }
+                                    Text("可从预设中选择 Aura-2 英语声音，也可切换到自定义模型 ID。API Key 保存在本机钥匙串。")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -112,9 +187,9 @@ struct PreferencesView: View {
                                 .frame(width: 64, alignment: .trailing)
                             }
                         }
-                        Text(elevenLabsSpeechConfiguration.isEnabled
-                            ? "在线语音已启用；详细参数在“配置 ElevenLabs”中调整。"
-                            : "点词与文章朗读使用设备声音。")
+                        Text(elevenLabsSpeechConfiguration.provider == .system
+                            ? "点词与文章朗读使用设备声音。"
+                            : "在线语音已启用；请在上方配置对应服务的 API Key。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -179,8 +254,10 @@ struct PreferencesView: View {
                                 }
                             }
                         }
-                        Text(elevenLabsSpeechConfiguration.isEnabled
+                        Text(elevenLabsSpeechConfiguration.provider == .elevenLabs
                             ? "先合成整段语音，再在本机按时间戳补足词间停顿；当前段的调整从下一段生效。"
+                            : elevenLabsSpeechConfiguration.provider == .deepgram
+                            ? "Deepgram 按自然语流分段合成；目前不支持逐词时间戳和词间停顿。"
                             : "系统语音逐词朗读，每个词结束后按设定时长停顿。")
                             .font(.callout)
                             .foregroundStyle(.secondary)
@@ -348,4 +425,9 @@ struct PreferencesView: View {
             .foregroundStyle(.secondary)
             .symbolRenderingMode(.hierarchical)
     }
+}
+
+private struct DeepgramVoicePreset: Identifiable {
+    let id: String
+    let name: String
 }

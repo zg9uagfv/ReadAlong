@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct PreferencesView: View {
-    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var localWhisperConfiguration: LocalWhisperConfiguration
     @ObservedObject var elevenLabsSpeechConfiguration: ElevenLabsSpeechConfiguration
     @Binding var accent: EnglishAccent
@@ -351,7 +350,13 @@ struct PreferencesView: View {
         .formStyle(.grouped)
         .font(.body)
         .scrollContentBackground(.hidden)
-        .background(ReaderTheme.settingsBackground(colorScheme))
+        .background(
+            LinearGradient(
+                colors: [Color(red: 0.94, green: 0.96, blue: 1.00), Color(red: 0.96, green: 1.00, blue: 0.96)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
         .tint(Color(red: 0.29, green: 0.37, blue: 0.90))
         .navigationTitle("偏好设置")
     }
@@ -425,43 +430,4 @@ struct PreferencesView: View {
 private struct DeepgramVoicePreset: Identifiable {
     let id: String
     let name: String
-}
-
-/// Reading preferences shared by the document window and the macOS Settings scene.
-/// Speed, child mode, and word pause keep their existing UserDefaults keys.
-/// Accent, voice, and typography still reset on launch, matching the previous session.
-@MainActor
-final class ReaderSettings: ObservableObject {
-    @Published var accent: EnglishAccent = .american
-    @Published var selectedVoiceIdentifier = ""
-    @Published var speed: Double = 0.45 {
-        didSet { defaults.set(speed, forKey: Keys.speed) }
-    }
-    @Published var childMode: Bool = false {
-        didSet { defaults.set(childMode, forKey: Keys.childMode) }
-    }
-    @Published var wordPause: Double = 0.5 {
-        didSet { defaults.set(wordPause, forKey: Keys.wordPause) }
-    }
-    @Published var fontStyle: DisplayFontStyle = .system
-    @Published var fontSize: Double = 18
-
-    private let defaults = UserDefaults.standard
-
-    init() {
-        let defaults = UserDefaults.standard
-        if let storedSpeed = defaults.object(forKey: Keys.speed) as? Double {
-            speed = min(0.68, max(0.18, storedSpeed))
-        }
-        childMode = defaults.bool(forKey: Keys.childMode)
-        if let storedPause = defaults.object(forKey: Keys.wordPause) as? Double {
-            wordPause = min(2, max(0, storedPause))
-        }
-    }
-
-    private enum Keys {
-        static let speed = "lastReadingSpeed"
-        static let childMode = "childModeEnabled"
-        static let wordPause = "childWordPause"
-    }
 }

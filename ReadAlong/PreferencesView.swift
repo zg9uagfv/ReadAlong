@@ -67,6 +67,17 @@ struct PreferencesView: View {
             Section {
                 DisclosureGroup(isExpanded: $isTTSExpanded) {
                     VStack(alignment: .leading, spacing: 12) {
+                        Text("朗读引擎")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Picker("朗读引擎", selection: $elevenLabsSpeechConfiguration.provider) {
+                            ForEach(SpeechProvider.allCases) { provider in
+                                Text(provider.title).tag(provider)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 260, alignment: .leading)
+
                         Text("英语口音")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
@@ -77,17 +88,6 @@ struct PreferencesView: View {
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
-                        .frame(maxWidth: 260, alignment: .leading)
-
-                        Text("朗读引擎")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Picker("朗读引擎", selection: $elevenLabsSpeechConfiguration.provider) {
-                            ForEach(SpeechProvider.allCases) { provider in
-                                Text(provider.title).tag(provider)
-                            }
-                        }
-                        .pickerStyle(.menu)
                         .frame(maxWidth: 260, alignment: .leading)
 
                         if elevenLabsSpeechConfiguration.provider == .elevenLabs {

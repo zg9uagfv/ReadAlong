@@ -77,6 +77,7 @@ struct ContentView: View {
                 accent: $settings.accent,
                 onSelect: openRecentArticle,
                 onShowReader: showReaderColumnIfCompact,
+                onShowLibrary: { isShowingLibrary = true },
                 onOpenPreferences: openPreferences
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
@@ -274,80 +275,45 @@ struct ContentView: View {
     private var header: some View {
         GeometryReader { geometry in
             let isCompact = geometry.size.width < 720
-            Group {
+            HStack(spacing: 12) {
+                headerStatus
                 if isCompact {
-                    HStack(spacing: 12) {
-                        headerIcon
-                        headerCompactText
-                        Spacer(minLength: 4)
-                        headerCompactActions
-                    }
+                    headerCompactActions.fixedSize()
                 } else {
-                    HStack(spacing: 16) {
-                        headerIcon
-                        headerText
-                        Spacer(minLength: 8)
-                        headerActions
-                    }
+                    headerActions
                 }
             }
-            .padding(16)
+            .padding(.horizontal, 14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(ReaderTheme.paperStrong(colorScheme), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(ReaderTheme.cardStroke(colorScheme), lineWidth: 1)
-            }
-            .shadow(color: ReaderTheme.primary.opacity(0.10), radius: 14, y: 6)
         }
-        .frame(height: 84)
+        .frame(height: 58)
+        .background(ReaderTheme.paperStrong(colorScheme), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(ReaderTheme.cardStroke(colorScheme), lineWidth: 1)
+        }
     }
 
-    private var headerIcon: some View {
-        Image(systemName: childMode ? "figure.and.child.holdinghands" : "book.closed.fill")
-            .font(.title2.weight(.bold))
-            .foregroundStyle(.white)
-            .frame(width: 52, height: 52)
-            .background(ReaderTheme.heroGradient, in: Circle())
-            .shadow(color: ReaderTheme.primary.opacity(0.25), radius: 8, y: 4)
-    }
-
-    private var headerText: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(childMode ? "一起读英语吧！" : "英语伴读")
-                .font(.title3.weight(.bold))
+    private var headerStatus: some View {
+        VStack(alignment: .leading, spacing: 2) {
             Text(lastReadingArticleText.isEmpty ? "粘贴内容，或选择文本、Markdown、音频文件" : "已恢复上次阅读，可从第 \(lastReadingWordIndex + 1) 个词继续")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
-            Text("\(wordCount) 个单词 · \(childMode ? "儿童慢速模式" : "自由阅读模式")")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(ReaderTheme.primary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var headerCompactText: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(childMode ? "一起读英语吧！" : "英语伴读")
-                .font(.headline)
                 .lineLimit(1)
             Text("\(wordCount) 个单词 · \(childMode ? "儿童慢速模式" : "自由阅读模式")")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(ReaderTheme.primary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var headerActions: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) { headerPrimaryAction; headerSecondaryActions }
-            VStack(alignment: .leading, spacing: 8) {
-                headerPrimaryAction
-                headerSecondaryActions
-            }
+        HStack(spacing: 8) {
+            headerPrimaryAction
+            headerSecondaryActions
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var headerCompactActions: some View {
@@ -506,14 +472,10 @@ struct ContentView: View {
                 }
 
                 if !readingSentences.isEmpty {
-                    HStack(spacing: 7) {
-                        Image(systemName: "hand.tap")
-                            .foregroundStyle(ReaderTheme.primary)
-                        Text("点按单词可标记 · 长按或右键查看词义 · 点句首播放按钮从该句朗读")
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 8)
+                    Text("点按标记 · 长按或右键查词 · 句首按钮从该句朗读")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .padding(.top, 4)
                 }
             }
             .padding(.vertical, 10)
@@ -940,8 +902,9 @@ struct ContentView: View {
                         .accessibilityLabel("清除循环")
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderless)
                 .controlSize(.small)
+                .foregroundStyle(.secondary)
 
                 if let loopHint {
                     Text(loopHint)
@@ -1386,11 +1349,6 @@ enum ReaderTheme {
     static let primary = Color(red: 0.29, green: 0.37, blue: 0.90)
     static let mint = Color(red: 0.55, green: 0.89, blue: 0.78)
     static let sunshine = Color(red: 1.00, green: 0.82, blue: 0.36)
-    static let heroGradient = LinearGradient(
-        colors: [Color(red: 0.31, green: 0.40, blue: 0.96), Color(red: 0.60, green: 0.35, blue: 0.92)],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
 
     static func canvas(_ scheme: ColorScheme) -> LinearGradient {
         switch scheme {
@@ -1487,6 +1445,9 @@ private struct OpenPreferencesButton: View {
 }
 
 private struct ReadingSidebar: View {
+    /// One line each. The full library sheet still holds every saved article.
+    private static let recentPreviewLimit = 3
+
     let recentArticles: [RecentArticle]
     let hasLoadedContent: Bool
     let showsReaderLink: Bool
@@ -1495,6 +1456,7 @@ private struct ReadingSidebar: View {
     @Binding var accent: EnglishAccent
     let onSelect: (RecentArticle) -> Void
     let onShowReader: () -> Void
+    let onShowLibrary: () -> Void
     let onOpenPreferences: () -> Void
 
     var body: some View {
@@ -1509,31 +1471,6 @@ private struct ReadingSidebar: View {
             }
 
             Section {
-                if recentArticles.isEmpty {
-                    Text("还没有最近阅读。导入或粘贴文章后会显示在这里。")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(recentArticles) { item in
-                        Button {
-                            onSelect(item)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.title).lineLimit(2)
-                                Text("第 \(item.position + 1) 个词继续")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityHint("从第 \(item.position + 1) 个词继续阅读")
-                    }
-                }
-            } header: {
-                Text("最近阅读")
-            }
-
-            Section {
                 Toggle("儿童模式", isOn: $childMode)
                 Toggle("中文翻译", isOn: $showsChineseTranslation)
                 Picker("英语口音", selection: $accent) {
@@ -1544,14 +1481,44 @@ private struct ReadingSidebar: View {
             } header: {
                 Text("快捷开关")
             } footer: {
-                Text("朗读语速在文字或 TTS 的播放控制里。播放原音频时用倍速滑杆。完整设置在偏好设置中。")
+                Text("原音频用倍速；文字和 TTS 的语速在播放条上。")
+            }
+
+            Section {
+                if recentArticles.isEmpty {
+                    Text("还没有最近阅读")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(recentArticles.prefix(Self.recentPreviewLimit))) { item in
+                        Button {
+                            onSelect(item)
+                        } label: {
+                            Text(item.title)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("从第 \(item.position + 1) 个词继续阅读")
+                    }
+                    if recentArticles.count > Self.recentPreviewLimit {
+                        Button("查看全部", action: onShowLibrary)
+                            .buttonStyle(.plain)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("查看全部最近阅读")
+                            .accessibilityHint("打开完整的最近阅读列表")
+                    }
+                }
+            } header: {
+                Text("最近阅读")
             }
         }
         .listStyle(.sidebar)
         .navigationTitle("阅读")
         .safeAreaInset(edge: .bottom) {
             OpenPreferencesButton(fillsWidth: true, action: onOpenPreferences)
-                .padding(12)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
         }
     }
 }

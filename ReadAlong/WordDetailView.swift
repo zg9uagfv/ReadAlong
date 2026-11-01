@@ -192,6 +192,7 @@ struct WordDetailView: View {
     }
 
     private func load() async {
+        definition = nil
         errorMessage = nil
         do {
             var result = try await DictionaryService.shared.lookup(word)

@@ -661,7 +661,7 @@ struct ContentView: View {
             } else if hasLoadedContent {
                 compactTextControls
             }
-            if hasLoadedContent {
+            if hasLoadedContent && showsSpeechRate {
                 speechRateControl
             }
         }
@@ -673,6 +673,12 @@ struct ContentView: View {
                 .stroke(ReaderTheme.cardStroke(colorScheme), lineWidth: 1)
         }
         .shadow(color: ReaderTheme.primary.opacity(0.05), radius: 6, y: 2)
+    }
+
+    /// Original-audio playback uses the 0.1–4.0 rate slider. Hide TTS 语速 there
+    /// so the two controls are not on screen together.
+    private var showsSpeechRate: Bool {
+        !(audio.hasAudio && !usesTTSForAudio)
     }
 
     private var speechRateControl: some View {
@@ -843,9 +849,10 @@ struct ContentView: View {
                 .tint(.accentColor)
                 .disabled(!audio.canControlPlayback)
                 .accessibilityHint(audio.loopLowerBound == nil ? "拖动调整播放位置" : "正在循环播放标记片段")
-
-                if loopStart != nil || audio.loopLowerBound != nil {
-                    audioLoopTrack
+                .overlay {
+                    if loopStart != nil || audio.loopLowerBound != nil {
+                        audioLoopMarks
+                    }
                 }
 
                 HStack {
@@ -1036,50 +1043,48 @@ struct ContentView: View {
         return "设 B 点"
     }
 
-    private var audioLoopTrack: some View {
-        Color.clear
-            .frame(height: 22)
-            .overlay {
-                GeometryReader { geo in
-                    let width = geo.size.width
-                    let span = max(audio.duration, 0.01)
-                    ZStack(alignment: .leading) {
-                        Capsule()
-                            .fill(Color.secondary.opacity(0.25))
-                            .frame(height: 3)
-                            .frame(maxHeight: .infinity, alignment: .center)
-                        if loopStart == nil, let start = audio.loopLowerBound, let end = audio.loopUpperBound {
-                            let origin = CGFloat(start / span) * width
-                            let markWidth = CGFloat(max(0, end - start) / span) * width
-                            Capsule()
-                                .fill(ReaderTheme.primary.opacity(0.55))
-                                .frame(width: max(2, markWidth), height: 3)
-                                .frame(maxHeight: .infinity, alignment: .center)
-                                .offset(x: origin)
+    /// Slider does not publish its track rect. 14pt matches roughly half a thumb
+    /// so the A-B range sits on the travel of the progress slider.
+    private static let audioSliderTrackInset: CGFloat = 14
+
+    private var audioLoopMarks: some View {
+        GeometryReader { geo in
+            let inset = Self.audioSliderTrackInset
+            let trackWidth = max(geo.size.width - inset * 2, 1)
+            let midY = geo.size.height / 2
+            let span = max(audio.duration, 0.01)
+            ZStack {
+                Color.clear
+                if loopStart == nil, let start = audio.loopLowerBound, let end = audio.loopUpperBound {
+                    let x0 = inset + CGFloat(start / span) * trackWidth
+                    let x1 = inset + CGFloat(end / span) * trackWidth
+                    Capsule()
+                        .fill(ReaderTheme.sunshine)
+                        .overlay {
+                            Capsule().stroke(Color.primary.opacity(0.45), lineWidth: 1)
                         }
-                        if let start = loopStart ?? audio.loopLowerBound {
-                            loopTick("A", x: CGFloat(start / span) * width, width: width)
-                        }
-                        if loopStart == nil, let end = audio.loopUpperBound {
-                            loopTick("B", x: CGFloat(end / span) * width, width: width)
-                        }
-                    }
+                        .frame(width: max(3, x1 - x0), height: 4)
+                        .position(x: (x0 + x1) / 2, y: midY)
+                    audioLoopDot(x: x0, y: midY)
+                    audioLoopDot(x: x1, y: midY)
+                } else if let start = loopStart ?? audio.loopLowerBound {
+                    audioLoopDot(x: inset + CGFloat(start / span) * trackWidth, y: midY)
                 }
             }
-            .accessibilityHidden(true)
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
-    private func loopTick(_ title: String, x: CGFloat, width: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            Circle()
-                .fill(ReaderTheme.primary)
-                .frame(width: 7, height: 7)
-            Text(title)
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(ReaderTheme.primary)
-        }
-        .fixedSize()
-        .offset(x: min(max(0, x - 6), max(0, width - 14)))
+    private func audioLoopDot(x: CGFloat, y: CGFloat) -> some View {
+        Circle()
+            .fill(ReaderTheme.sunshine)
+            .overlay {
+                Circle().stroke(Color.primary.opacity(0.55), lineWidth: 1)
+            }
+            .frame(width: 8, height: 8)
+            .position(x: x, y: y)
     }
 
     private func toggleEditing() {
@@ -1458,23 +1463,26 @@ private struct OpenPreferencesButton: View {
     var action: () -> Void = {}
 
     var body: some View {
-        Group {
-#if os(macOS)
-            SettingsLink {
-                label
-            }
-#else
-            Button(action: action) {
-                label
-            }
-#endif
-        }
-        .accessibilityHint("打开完整偏好设置")
+        labeledControl
+            .accessibilityHint("打开完整偏好设置")
     }
 
-    private var label: some View {
-        Label("偏好设置", systemImage: "gearshape")
+    @ViewBuilder
+    private var labeledControl: some View {
+        let title = Label("偏好设置", systemImage: "gearshape")
             .frame(maxWidth: fillsWidth ? .infinity : nil)
+#if os(macOS)
+        // Do not apply a custom ButtonStyle here. SettingsLink uses its own
+        // button, and an ancestor style replaces that control.
+        SettingsLink { title }
+#else
+        if fillsWidth {
+            Button(action: action) { title }
+                .buttonStyle(ReaderOutlinedButtonStyle())
+        } else {
+            Button(action: action) { title }
+        }
+#endif
     }
 }
 
@@ -1536,14 +1544,13 @@ private struct ReadingSidebar: View {
             } header: {
                 Text("快捷开关")
             } footer: {
-                Text("语速在阅读区的播放控制里调节。完整的声音、字体和转写设置在偏好设置中。")
+                Text("朗读语速在文字或 TTS 的播放控制里。播放原音频时用倍速滑杆。完整设置在偏好设置中。")
             }
         }
         .listStyle(.sidebar)
         .navigationTitle("阅读")
         .safeAreaInset(edge: .bottom) {
             OpenPreferencesButton(fillsWidth: true, action: onOpenPreferences)
-                .buttonStyle(ReaderOutlinedButtonStyle())
                 .padding(12)
         }
     }

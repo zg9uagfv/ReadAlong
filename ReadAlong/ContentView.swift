@@ -39,6 +39,10 @@ struct ContentView: View {
     @State private var recentArticles: [RecentArticle] = []
     @State private var isShowingLibrary = false
     @State private var loopStart: Double?
+    @State private var loopHint: String?
+    /// Terminal transcription copy already shown and dismissed. The model status
+    /// can stay for the progress tooltip; the footnote must not keep showing it.
+    @State private var dismissedTranscriptionNotice: String?
     @AppStorage("showsChineseTranslation") private var showsChineseTranslation = false
     @State private var chineseTranslations: [Int: String] = [:]
     @State private var isTranslating = false
@@ -118,6 +122,10 @@ struct ContentView: View {
                 speech.stop()
                 pendingReadingWordIndex = 0
                 isScrubbingReadingProgress = false
+                discardLoopSelection()
+            }
+            .onChange(of: audio.isTranscribing) { isTranscribing in
+                if isTranscribing { dismissedTranscriptionNotice = nil }
             }
             .onChange(of: speech.isSpeaking) { isSpeaking in
                 // The system synthesizer clears its active word when the final
@@ -146,6 +154,7 @@ struct ContentView: View {
                 // The source text has diverged from the audio transcript. Keeping
                 // the old player here would make the play button use stale audio.
                 cancelAudioTranscription()
+                discardLoopSelection()
                 audio.unload()
                 speech.stop()
             }
@@ -592,8 +601,17 @@ struct ContentView: View {
             playbackProgressRow
             if audio.isTranscribing {
                 transcriptionStatusRow
+            } else if let notice = terminalTranscriptionNotice {
+                transcriptionNoticeRow(notice)
             }
             playbackTransportRow
+            if let loopHint {
+                Text(loopHint)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(loopHint)
+            }
             playbackSettingsRow
             if let footnote = playbackFootnote {
                 Text(footnote)
@@ -658,7 +676,10 @@ struct ContentView: View {
 
     private var playbackProgressHelp: String {
         if audio.hasAudio {
-            let status = audio.transcriptionStatus ?? "已识别音频文本"
+            let trimmedStatus = audio.transcriptionStatus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let status = trimmedStatus.isEmpty
+                ? (audio.transcriptionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "尚未识别音频文本" : "已识别音频文本")
+                : trimmedStatus
             let name = audio.fileName.trimmingCharacters(in: .whitespacesAndNewlines)
             return name.isEmpty ? status : "\(name)。\(status)"
         }
@@ -756,16 +777,28 @@ struct ContentView: View {
             Button { audio.skip(by: 15) } label: { Label("前进 15 秒", systemImage: "goforward.15") }
             Button {
                 if let start = loopStart {
-                    audio.setLoop(start: start, end: audio.currentTime)
-                    loopStart = nil
+                    if audio.setLoop(start: start, end: audio.currentTime) {
+                        loopStart = nil
+                        loopHint = nil
+                    } else {
+                        loopHint = "B 点需晚于 A 至少 0.3 秒"
+                    }
                 } else {
                     loopStart = audio.currentTime
+                    loopHint = nil
                 }
             } label: {
                 Label(loopStart == nil ? "设 A 点" : "设 B 点", systemImage: "repeat")
             }
+            Divider()
+            Button {
+                discardLoopSelection()
+            } label: {
+                Label("清除循环", systemImage: "xmark.circle")
+            }
+            .disabled(!audio.hasLoop && loopStart == nil)
         } label: {
-            Label("精听", systemImage: "repeat")
+            Label(audio.hasLoop ? "精听 · 循环中" : "精听", systemImage: "repeat")
         }
         .buttonStyle(ReaderOutlinedButtonStyle())
     }
@@ -902,19 +935,52 @@ struct ContentView: View {
         }
     }
 
-    /// Shown only for audio-specific status. Steady playback keeps the same three rows.
+    /// In-progress guidance and the child-mode tip only. Cancel, failure, and
+    /// other finished statuses stay out of this footnote.
     private var playbackFootnote: String? {
         guard audio.hasAudio else { return nil }
         if audio.isTranscribing {
             return "识别完成后可选择 TTS 朗读；儿童模式只影响 TTS。"
         }
-        if let status = audio.transcriptionStatus?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty {
-            return status
-        }
         if childMode && !usesTTSForAudio {
             return "当前播放原音频；切换到 TTS 朗读后儿童模式才会生效。"
         }
         return nil
+    }
+
+    /// Failure and other finished recognition messages. Hidden once dismissed or after a few seconds.
+    private var terminalTranscriptionNotice: String? {
+        guard !audio.isTranscribing else { return nil }
+        let message = audio.transcriptionStatus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !message.isEmpty, message != dismissedTranscriptionNotice else { return nil }
+        return message
+    }
+
+    private func transcriptionNoticeRow(_ notice: String) -> some View {
+        HStack(spacing: 8) {
+            Text(notice)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            Button("关闭") { dismissedTranscriptionNotice = notice }
+                .buttonStyle(.borderless)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(ReaderTheme.primary)
+                .accessibilityLabel("关闭识别状态")
+        }
+        .task(id: notice) {
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            dismissedTranscriptionNotice = notice
+        }
+    }
+
+    private func discardLoopSelection() {
+        loopStart = nil
+        loopHint = nil
+        audio.clearLoop()
     }
 
     private func applyLiveSettings(debounced: Bool) {
@@ -1134,6 +1200,7 @@ struct ContentView: View {
                 isEditingText = false
                 audioTranscriptText = ""
                 text = ""
+                discardLoopSelection()
                 let configuration = localWhisperConfiguration
                 let usesLocalWhisper = configuration.localWhisperEnabled
                 audio.load(
@@ -1171,6 +1238,7 @@ struct ContentView: View {
                 } else {
                     throw CocoaError(.fileReadInapplicableStringEncoding)
                 }
+                discardLoopSelection()
                 audio.unload()
                 speech.stop()
                 isEditingText = false

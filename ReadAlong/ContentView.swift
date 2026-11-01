@@ -33,7 +33,6 @@ struct ContentView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isScrubbingReadingProgress = false
     @State private var pendingReadingWordIndex = 0.0
-    @State private var isAudioProgressVisible = true
     @State private var usesTTSForAudio = false
     @State private var audioPlaybackRate = 1.0
     @State private var audioPlaybackRateInput = "1.0"
@@ -79,7 +78,9 @@ struct ContentView: View {
                         } else {
                             readingView
                         }
-                        controls
+                        if showsPlaybackBar {
+                            playbackBar
+                        }
                     }
                     .padding(24)
                 }
@@ -111,6 +112,8 @@ struct ContentView: View {
                 }
             }
             .onChange(of: usesTTSForAudio) { _ in
+                commitAudioPlaybackRateInput()
+                isAudioPlaybackRateFocused = false
                 audio.pause()
                 speech.stop()
                 pendingReadingWordIndex = 0
@@ -574,234 +577,344 @@ struct ContentView: View {
         readingSentences = result
     }
 
-    private var controls: some View {
-        VStack(spacing: 6) {
-            if audio.hasAudio {
-                audioControls
-                if usesTTSForAudio {
-                    compactTextControls
-                }
-            } else if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                compactTextControls
+    /// One bottom bar for original audio, TTS, and a text file with no audio.
+    /// Row order stays progress, transport, then settings. Only labels and bindings change.
+    private var showsPlaybackBar: Bool {
+        audio.hasAudio || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var usesOriginalAudio: Bool {
+        audio.hasAudio && !usesTTSForAudio
+    }
+
+    private var playbackBar: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            playbackProgressRow
+            if audio.isTranscribing {
+                transcriptionStatusRow
+            }
+            playbackTransportRow
+            playbackSettingsRow
+            if let footnote = playbackFootnote {
+                Text(footnote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(8)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(.white.opacity(0.8), lineWidth: 1)
         }
         .shadow(color: ReaderTheme.primary.opacity(0.05), radius: 6, y: 2)
     }
 
-    private var compactTextControls: some View {
-        HStack(spacing: 12) {
-            readingProgress
-            ttsControls
+    private var playbackProgressRow: some View {
+        playbackProgressChrome(
+            title: usesOriginalAudio ? originalAudioProgressTitle : "文章朗读进度",
+            systemImage: usesOriginalAudio ? "waveform" : "text.line.first.and.arrowtriangle.forward",
+            value: usesOriginalAudio ? originalAudioProgressValue : wordProgressValue,
+            accessibilityValue: usesOriginalAudio ? originalAudioProgressValue : wordProgressAccessibilityValue
+        ) {
+            if usesOriginalAudio {
+                audioTimeSlider
+            } else {
+                wordProgressSlider
+            }
         }
     }
 
-    private var readingProgress: some View {
-        let completedWords = min(
+    private var originalAudioProgressTitle: String {
+        let name = audio.fileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "原音频" : name
+    }
+
+    private var originalAudioProgressValue: String {
+        "\(audio.formattedTime(audio.currentTime)) / \(audio.formattedTime(audio.duration))"
+    }
+
+    private var wordProgressValue: String {
+        "\(readingCompletedWordCount) / \(wordCount) 词"
+    }
+
+    private var wordProgressAccessibilityValue: String {
+        "已定位到第 \(readingCompletedWordCount) 个词，共 \(wordCount) 个单词；拖动后从目标位置开始或继续朗读"
+    }
+
+    private var readingCompletedWordCount: Int {
+        min(
             max(0, speech.isSpeaking ? (activeSpokenWordIndex ?? -1) + 1 : Int(pendingReadingWordIndex.rounded())),
             wordCount
         )
-        let maximumWordIndex = max(0, wordCount - 1)
-        return VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Label("文章朗读进度", systemImage: "text.line.first.and.arrowtriangle.forward")
-                    .font(.subheadline.weight(.medium))
-                Spacer()
-                Text("\(completedWords) / \(wordCount) 词")
+    }
+
+    private var readingProgressMaximumIndex: Int {
+        max(0, wordCount - 1)
+    }
+
+    private var playbackProgressHelp: String {
+        if audio.hasAudio {
+            let status = audio.transcriptionStatus ?? "已识别音频文本"
+            let name = audio.fileName.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? status : "\(name)。\(status)"
+        }
+        return "拖动后从目标词开始或继续朗读"
+    }
+
+    private func playbackProgressChrome<SliderContent: View>(
+        title: String,
+        systemImage: String,
+        value: String,
+        accessibilityValue: String,
+        @ViewBuilder slider: () -> SliderContent
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Label(title, systemImage: systemImage)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .help(playbackProgressHelp)
+                Spacer(minLength: 8)
+                Text(value)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .lineLimit(1)
             }
-            if wordCount > 1 {
-                Slider(
-                    value: Binding(
-                        get: {
-                            if isScrubbingReadingProgress { return pendingReadingWordIndex }
-                            if speech.isSpeaking {
-                                return Double(min(maximumWordIndex, activeSpokenWordIndex ?? 0))
-                            }
-                            return min(Double(maximumWordIndex), pendingReadingWordIndex)
-                        },
-                        set: { pendingReadingWordIndex = $0 }
-                    ),
-                    in: 0...Double(maximumWordIndex),
-                    step: 1,
-                    onEditingChanged: { isEditing in
-                        isScrubbingReadingProgress = isEditing
-                        if isEditing {
-                            pendingReadingWordIndex = Double(min(maximumWordIndex, activeSpokenWordIndex ?? 0))
-                        } else if speech.isSpeaking {
-                            seekTextReading(to: Int(pendingReadingWordIndex.rounded()))
-                        }
-                    }
-                )
+            slider()
+                .controlSize(.small)
                 .tint(.accentColor)
-                .accessibilityValue("已定位到第 \(completedWords) 个词，共 \(wordCount) 个单词；拖动后从目标位置开始或继续朗读")
-            }
+                .accessibilityLabel(title)
+                .accessibilityValue(accessibilityValue)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(ReaderTheme.sunshine.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private var ttsControls: some View {
-        HStack(spacing: 6) {
+    private var audioTimeSlider: some View {
+        Slider(
+            value: Binding(
+                get: { audio.currentTime },
+                set: { audio.seek(to: $0) }
+            ),
+            in: 0...max(audio.duration, 0.01)
+        )
+        .disabled(!audio.canControlPlayback)
+    }
+
+    private var wordProgressSlider: some View {
+        let maximumIndex = readingProgressMaximumIndex
+        let upperBound = Double(max(maximumIndex, 1))
+        return Slider(
+            value: Binding(
+                get: {
+                    let raw: Double
+                    if isScrubbingReadingProgress {
+                        raw = pendingReadingWordIndex
+                    } else if speech.isSpeaking {
+                        raw = Double(min(maximumIndex, activeSpokenWordIndex ?? 0))
+                    } else {
+                        raw = min(Double(maximumIndex), pendingReadingWordIndex)
+                    }
+                    return min(max(0, raw), upperBound)
+                },
+                set: { pendingReadingWordIndex = $0 }
+            ),
+            in: 0...upperBound,
+            step: 1,
+            onEditingChanged: { isEditing in
+                guard wordCount > 1 else { return }
+                isScrubbingReadingProgress = isEditing
+                if isEditing {
+                    pendingReadingWordIndex = Double(min(maximumIndex, activeSpokenWordIndex ?? 0))
+                } else if speech.isSpeaking {
+                    seekTextReading(to: Int(pendingReadingWordIndex.rounded()))
+                }
+            }
+        )
+        .disabled(wordCount <= 1)
+    }
+
+    private var playbackTransportRow: some View {
+        HStack(spacing: 8) {
+            if usesOriginalAudio {
+                intensiveListeningMenu
+                audioPlayButton
+            } else {
+                textPauseButton
+                textPlayButton
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var intensiveListeningMenu: some View {
+        Menu {
+            Button { audio.skip(by: -15) } label: { Label("后退 15 秒", systemImage: "gobackward.15") }
+            Button { audio.skip(by: 15) } label: { Label("前进 15 秒", systemImage: "goforward.15") }
             Button {
-                if speech.isSpeaking {
-                    speech.stop()
+                if let start = loopStart {
+                    audio.setLoop(start: start, end: audio.currentTime)
+                    loopStart = nil
                 } else {
-                    if audio.hasAudio { audio.pause() }
-                    isEditingText = false
-                    startTextReading()
+                    loopStart = audio.currentTime
                 }
             } label: {
-                Label(
-                    speech.isSpeaking
-                        ? (audio.hasAudio ? "停止 TTS 朗读" : "关闭阅读")
-                        : (audio.hasAudio ? "开始 TTS 朗读" : "开始阅读"),
-                    systemImage: speech.isSpeaking ? "speaker.slash.fill" : "speaker.wave.2.fill"
-                )
-                    .frame(minWidth: 110)
+                Label(loopStart == nil ? "设 A 点" : "设 B 点", systemImage: "repeat")
             }
-            .buttonStyle(ReaderFilledButtonStyle(color: speech.isSpeaking ? .red : ReaderTheme.primary))
-            .disabled(!speech.isSpeaking && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } label: {
+            Label("精听", systemImage: "repeat")
+        }
+        .buttonStyle(ReaderOutlinedButtonStyle())
+    }
 
-            Button {
-                speech.togglePause()
-            } label: {
-                Label(speech.isPaused ? "继续" : "暂停", systemImage: speech.isPaused ? "play.fill" : "pause.fill")
+    private var audioPlayButton: some View {
+        Button { audio.togglePlayback() } label: {
+            Label(audio.isPlaying ? "暂停音频" : "播放音频", systemImage: audio.isPlaying ? "pause.fill" : "play.fill")
+                .frame(minWidth: 110)
+        }
+        .buttonStyle(ReaderFilledButtonStyle())
+        .disabled(!audio.canControlPlayback)
+    }
+
+    private var textPauseButton: some View {
+        Button {
+            speech.togglePause()
+        } label: {
+            Label(speech.isPaused ? "继续" : "暂停", systemImage: speech.isPaused ? "play.fill" : "pause.fill")
+        }
+        .buttonStyle(ReaderOutlinedButtonStyle())
+        .disabled(!speech.isSpeaking)
+    }
+
+    private var textPlayButton: some View {
+        Button {
+            if speech.isSpeaking {
+                speech.stop()
+            } else {
+                if audio.hasAudio { audio.pause() }
+                isEditingText = false
+                startTextReading()
             }
-            .buttonStyle(ReaderOutlinedButtonStyle())
-            .disabled(!speech.isSpeaking)
+        } label: {
+            Label(textPlayTitle, systemImage: speech.isSpeaking ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .frame(minWidth: 110)
+        }
+        .buttonStyle(ReaderFilledButtonStyle(color: speech.isSpeaking ? .red : ReaderTheme.primary))
+        .disabled(!speech.isSpeaking && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
 
+    private var textPlayTitle: String {
+        if speech.isSpeaking {
+            return audio.hasAudio ? "停止 TTS 朗读" : "关闭阅读"
+        }
+        return audio.hasAudio ? "开始 TTS 朗读" : "开始阅读"
+    }
+
+    private var playbackSettingsRow: some View {
+        HStack(alignment: .center, spacing: 12) {
+            if audio.hasAudio {
+                Picker("朗读来源", selection: $usesTTSForAudio) {
+                    Text("原音频").tag(false)
+                    Text("TTS 朗读").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .frame(maxWidth: 300)
+                .disabled(audio.isTranscribing || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            Spacer(minLength: 8)
+            playbackRateControl
+        }
+        .frame(minHeight: 26)
+    }
+
+    private var playbackRateControl: some View {
+        Group {
+            if usesOriginalAudio {
+                audioRateControl
+            } else {
+                speechRateControl
+            }
+        }
+        .frame(minWidth: 168, idealWidth: 220, maxWidth: 240, alignment: .trailing)
+    }
+
+    private var audioRateControl: some View {
+        HStack(spacing: 4) {
+            Text("倍率")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            TextField("倍率", text: $audioPlaybackRateInput)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .frame(width: 58)
+                .focused($isAudioPlaybackRateFocused)
+                .onChange(of: audioPlaybackRateInput) { input in
+                    updateAudioPlaybackRateInput(input)
+                }
+                .onChange(of: isAudioPlaybackRateFocused) { isFocused in
+                    if !isFocused { commitAudioPlaybackRateInput() }
+                }
+                .onSubmit { commitAudioPlaybackRateInput() }
+                .accessibilityLabel("音频播放倍率，范围 0.1 到 4")
+            Text("×")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
         }
     }
 
-    private var audioControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                HStack(spacing: 10) {
-                    Image(systemName: "waveform")
-                        .foregroundStyle(.tint)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(audio.fileName).font(.headline).lineLimit(1)
-                        Text(audio.transcriptionStatus ?? "已识别音频文本")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isAudioProgressVisible.toggle()
-                    }
-                }
-                .help(isAudioProgressVisible ? "点击隐藏播放进度" : "点击显示播放进度")
+    private var speechRateControl: some View {
+        HStack(spacing: 6) {
+            Text("语速")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Slider(value: $speed, in: 0.18...0.68, step: 0.01)
+                .controlSize(.small)
+                .accessibilityLabel("语速")
+                .accessibilityValue(String(format: "%.2f 倍", speed / 0.45))
+            Text(String(format: "%.2f×", speed / 0.45))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .trailing)
+                .accessibilityHidden(true)
+        }
+    }
 
-                if !usesTTSForAudio {
-                    TextField("倍率", text: $audioPlaybackRateInput)
-                        .textFieldStyle(.roundedBorder)
-                        .multilineTextAlignment(.trailing)
-                        .monospacedDigit()
-                        .frame(width: 58)
-                        .focused($isAudioPlaybackRateFocused)
-                        .onChange(of: audioPlaybackRateInput) { input in
-                            updateAudioPlaybackRateInput(input)
-                        }
-                        .onChange(of: isAudioPlaybackRateFocused) { isFocused in
-                            if !isFocused { commitAudioPlaybackRateInput() }
-                        }
-                        .onSubmit { commitAudioPlaybackRateInput() }
-                        .accessibilityLabel("音频播放倍率，范围 0.1 到 4")
-                    Text("×")
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Picker("朗读来源", selection: $usesTTSForAudio) {
-                Text("原音频").tag(false)
-                Text("TTS 朗读").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .disabled(audio.isTranscribing || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            if audio.isTranscribing {
-                Text("识别完成后可选择 TTS 朗读；儿童模式只影响 TTS。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if childMode && !usesTTSForAudio {
-                Text("当前播放原音频；切换到 TTS 朗读后儿童模式才会生效。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if audio.isTranscribing {
-                HStack {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("识别中，音频可随时播放")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("停止识别") { cancelAudioTranscription() }
-                        .accessibilityLabel("停止音频识别")
-                }
-            }
-
-            if !usesTTSForAudio && isAudioProgressVisible {
-                Slider(
-                    value: Binding(
-                        get: { audio.currentTime },
-                        set: { audio.seek(to: $0) }
-                    ),
-                    in: 0...max(audio.duration, 0.01)
-                )
-                .tint(.accentColor)
-                .disabled(!audio.canControlPlayback)
-
-                HStack {
-                    Text(audio.formattedTime(audio.currentTime)).monospacedDigit()
-                    Spacer()
-                    Text(audio.formattedTime(audio.duration)).monospacedDigit()
-                }
+    private var transcriptionStatusRow: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text(audio.transcriptionStatus ?? "识别中，音频可随时播放")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            }
-
-            if !usesTTSForAudio {
-                Menu {
-                    Button { audio.skip(by: -15) } label: { Label("后退 15 秒", systemImage: "gobackward.15") }
-                    Button { audio.skip(by: 15) } label: { Label("前进 15 秒", systemImage: "goforward.15") }
-                    Button {
-                        if let start = loopStart {
-                            audio.setLoop(start: start, end: audio.currentTime)
-                            loopStart = nil
-                        } else { loopStart = audio.currentTime }
-                    } label: { Label(loopStart == nil ? "设 A 点" : "设 B 点", systemImage: "repeat") }
-                } label: { Label("精听", systemImage: "repeat") }
-                .buttonStyle(ReaderOutlinedButtonStyle())
-
-                Button { audio.togglePlayback() } label: {
-                    Label(audio.isPlaying ? "暂停音频" : "播放音频", systemImage: audio.isPlaying ? "pause.fill" : "play.fill")
-                        .frame(minWidth: 110)
-                }
-                .buttonStyle(ReaderFilledButtonStyle())
-                .disabled(!audio.canControlPlayback)
-            }
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Button("停止识别") { cancelAudioTranscription() }
+                .buttonStyle(.borderless)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(ReaderTheme.primary)
+                .accessibilityLabel("停止音频识别")
         }
-        .padding(12)
-        .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ReaderTheme.primary.opacity(0.12), lineWidth: 1)
+    }
+
+    /// Shown only for audio-specific status. Steady playback keeps the same three rows.
+    private var playbackFootnote: String? {
+        guard audio.hasAudio else { return nil }
+        if audio.isTranscribing {
+            return "识别完成后可选择 TTS 朗读；儿童模式只影响 TTS。"
         }
+        if let status = audio.transcriptionStatus?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty {
+            return status
+        }
+        if childMode && !usesTTSForAudio {
+            return "当前播放原音频；切换到 TTS 朗读后儿童模式才会生效。"
+        }
+        return nil
     }
 
     private func applyLiveSettings(debounced: Bool) {

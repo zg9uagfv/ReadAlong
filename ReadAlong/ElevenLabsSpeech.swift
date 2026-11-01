@@ -61,7 +61,9 @@ final class ElevenLabsSpeechConfiguration: ObservableObject {
         if let savedProvider = defaults.string(forKey: "speechProvider"), let provider = SpeechProvider(rawValue: savedProvider) {
             self.provider = provider
         } else {
-            provider = defaults.bool(forKey: "elevenLabsSpeechEnabled") ? .elevenLabs : .system
+            // No stored speechProvider: show 系统语音. Do not infer from the legacy
+            // elevenLabsSpeechEnabled flag, and do not write UserDefaults here.
+            self.provider = .system
         }
         modelID = defaults.string(forKey: "elevenLabsSpeechModelID") ?? "eleven_flash_v2_5"
         americanVoiceID = defaults.string(forKey: "elevenLabsAmericanVoiceID") ?? Self.sampleAmericanVoiceID

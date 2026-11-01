@@ -247,6 +247,11 @@ struct ContentView: View {
                     }
                 }
                 .navigationTitle("最近阅读")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("关闭") { isShowingLibrary = false }
+                    }
+                }
             }
             .frame(minWidth: 420, minHeight: 360)
         }

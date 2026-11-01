@@ -78,18 +78,6 @@ struct PreferencesView: View {
                         .pickerStyle(.menu)
                         .frame(maxWidth: 260, alignment: .leading)
 
-                        Text("英语口音")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Picker("英语口音", selection: $accent) {
-                            ForEach(EnglishAccent.allCases) { item in
-                                Text(item.rawValue).tag(item)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .frame(maxWidth: 260, alignment: .leading)
-
                         if elevenLabsSpeechConfiguration.provider == .elevenLabs {
                             DisclosureGroup("配置 ElevenLabs", isExpanded: $isElevenLabsExpanded) {
                                 VStack(alignment: .leading, spacing: 10) {
@@ -143,6 +131,18 @@ struct PreferencesView: View {
                                 .padding(.top, 4)
                             }
                         } else {
+                            Text("英语口音")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Picker("英语口音", selection: $accent) {
+                                ForEach(EnglishAccent.allCases) { item in
+                                    Text(item.rawValue).tag(item)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .frame(maxWidth: 260, alignment: .leading)
+
                             Text("系统声音")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)

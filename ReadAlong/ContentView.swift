@@ -5,26 +5,21 @@ import Translation
 #endif
 
 struct ContentView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @EnvironmentObject private var localWhisperConfiguration: LocalWhisperConfiguration
+    @EnvironmentObject private var elevenLabsSpeechConfiguration: ElevenLabsSpeechConfiguration
+    @EnvironmentObject private var settings: ReaderSettings
     @StateObject private var speech = SpeechController()
     @StateObject private var audio = AudioPlaybackController()
-    @StateObject private var localWhisperConfiguration = LocalWhisperConfiguration()
-    @StateObject private var elevenLabsSpeechConfiguration = ElevenLabsSpeechConfiguration()
     @State private var text = ""
     @AppStorage("lastReadingArticleText") private var lastReadingArticleText = ""
     @AppStorage("lastReadingWordIndex") private var lastReadingWordIndex = 0
-    @AppStorage("lastReadingSpeed") private var savedReadingSpeed = 0.45
     @State private var readingSentences: [ReadingSentence] = []
-    @State private var accent: EnglishAccent = .american
-    @State private var speed = 0.45
     @State private var settingsUpdateTask: Task<Void, Never>?
     @State private var localWhisperTask: Task<Void, Never>?
     @State private var localWhisperRequestID = UUID()
-    @AppStorage("childModeEnabled") private var childMode = false
-    @AppStorage("childWordPause") private var wordPause = 0.5
-    @State private var fontSize = 18.0
-    @State private var fontStyle = DisplayFontStyle.system
     @State private var highlightedTokens: Set<String> = []
-    @State private var selectedVoiceIdentifier = ""
     @State private var isImporting = false
     @State private var errorMessage: String?
     @State private var isEditingText = true
@@ -36,10 +31,14 @@ struct ContentView: View {
     @State private var isAudioProgressVisible = true
     @State private var usesTTSForAudio = false
     @State private var audioPlaybackRate = 1.0
-    @State private var audioPlaybackRateInput = "1.0"
     @State private var recentArticles: [RecentArticle] = []
     @State private var isShowingLibrary = false
     @State private var loopStart: Double?
+    @State private var loopHint: String?
+    @State private var expandedWord: WordSelection?
+#if os(iOS)
+    @State private var isShowingPreferences = false
+#endif
     @AppStorage("showsChineseTranslation") private var showsChineseTranslation = false
     @State private var chineseTranslations: [Int: String] = [:]
     @State private var isTranslating = false
@@ -48,7 +47,20 @@ struct ContentView: View {
     @State private var translationTask: Task<Void, Never>?
     @State private var appleTranslationPassages: [String] = []
     @State private var appleTranslationRequestID = UUID()
-    @FocusState private var isAudioPlaybackRateFocused: Bool
+
+    private var accent: EnglishAccent { settings.accent }
+    private var speed: Double { settings.speed }
+    private var childMode: Bool { settings.childMode }
+    private var wordPause: Double { settings.wordPause }
+    private var fontStyle: DisplayFontStyle { settings.fontStyle }
+    private var fontSize: Double { settings.fontSize }
+    private var selectedVoiceIdentifier: String {
+        get { settings.selectedVoiceIdentifier }
+        nonmutating set { settings.selectedVoiceIdentifier = newValue }
+    }
+    private var hasLoadedContent: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     private var wordCount: Int {
         readingSentences.last.map { $0.wordOffset + $0.tokens.count } ?? 0
@@ -56,24 +68,26 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            PreferencesView(
-                localWhisperConfiguration: localWhisperConfiguration,
-                elevenLabsSpeechConfiguration: elevenLabsSpeechConfiguration,
-                accent: $accent,
-                selectedVoiceIdentifier: $selectedVoiceIdentifier,
-                speed: $speed,
-                childMode: $childMode,
-                wordPause: $wordPause,
-                fontStyle: $fontStyle,
-                fontSize: $fontSize
+            ReadingSidebar(
+                recentArticles: recentArticles,
+                hasLoadedContent: hasLoadedContent,
+                showsReaderLink: horizontalSizeClass == .compact,
+                childMode: $settings.childMode,
+                showsChineseTranslation: chineseTranslationBinding,
+                accent: $settings.accent,
+                onSelect: openRecentArticle,
+                onShowReader: showReaderColumnIfCompact,
+                onOpenPreferences: openPreferences
             )
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         } detail: {
             NavigationStack {
                 ZStack {
-                    ReaderTheme.canvas.ignoresSafeArea()
+                    ReaderTheme.canvas(colorScheme).ignoresSafeArea()
                     VStack(spacing: 20) {
-                        header
+                        if !hasLoadedContent {
+                            header
+                        }
                         if isEditingText {
                             editor
                         } else {
@@ -93,14 +107,14 @@ struct ContentView: View {
                 applyLiveSettings(debounced: false)
             }
             .onChange(of: speed) { _ in
-                savedReadingSpeed = speed
                 applyLiveSettings(debounced: true)
             }
             .onChange(of: audioPlaybackRate) { value in
                 audio.setPlaybackRate(Float(value))
-                if !isAudioPlaybackRateFocused {
-                    audioPlaybackRateInput = String(format: "%.1f", value)
-                }
+            }
+            .onChange(of: audio.fileName) { _ in
+                loopStart = nil
+                loopHint = nil
             }
             .onChange(of: wordPause) { _ in
                 applyLiveSettings(debounced: true)
@@ -158,7 +172,27 @@ struct ContentView: View {
             .background {
                 appleTranslationRunner
             }
-            .navigationTitle("英语伴读")
+            .navigationTitle(childMode ? "一起读英语吧！" : "英语伴读")
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if hasLoadedContent {
+                        Button(action: toggleEditing) {
+                            Label(isEditingText ? "进入阅读" : "编辑文本", systemImage: isEditingText ? "play.circle" : "square.and.pencil")
+                        }
+                        Button { isImporting = true } label: {
+                            Label("选择文件", systemImage: "doc.badge.plus")
+                        }
+                        Menu {
+                            Button("自动排版") { text = EnglishTextFormatter.formatArticle(text) }
+                            Button(showsChineseTranslation ? "关闭中文" : "显示中文", action: toggleChineseTranslation)
+                            Button("最近阅读") { isShowingLibrary = true }
+                        } label: {
+                            Label("更多", systemImage: "ellipsis.circle")
+                        }
+                    }
+                    OpenPreferencesButton(action: openPreferences)
+                }
+            }
             .fileImporter(
                 isPresented: $isImporting,
                 allowedContentTypes: [.item],
@@ -176,7 +210,10 @@ struct ContentView: View {
             }
             .onAppear {
                 loadRecentArticles()
-                speed = savedReadingSpeed
+                if !selectedVoiceIdentifier.isEmpty,
+                   !EnglishVoiceOption.available(for: accent).contains(where: { $0.identifier == selectedVoiceIdentifier }) {
+                    selectedVoiceIdentifier = ""
+                }
                 guard text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       !lastReadingArticleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                 text = lastReadingArticleText
@@ -195,18 +232,11 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .tint(ReaderTheme.primary)
-        // This reader uses a deliberately light paper-like canvas. Keeping the
-        // complete split view in light appearance prevents macOS Form labels
-        // from becoming white against that canvas.
-        .preferredColorScheme(.light)
         .sheet(isPresented: $isShowingLibrary) {
             NavigationStack {
                 List(recentArticles) { item in
                     Button {
-                        text = item.text
-                        pendingReadingWordIndex = Double(item.position)
-                        isEditingText = false
-                        isShowingLibrary = false
+                        openRecentArticle(item)
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.title).lineLimit(1)
@@ -218,6 +248,26 @@ struct ContentView: View {
                 .navigationTitle("最近阅读")
             }
             .frame(minWidth: 420, minHeight: 360)
+        }
+#if os(iOS)
+        .sheet(isPresented: $isShowingPreferences) {
+            NavigationStack {
+                preferencesForm
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("完成") { isShowingPreferences = false }
+                        }
+                    }
+            }
+        }
+#endif
+        .sheet(item: $expandedWord) { selection in
+            NavigationStack {
+                WordDetailView(word: selection.word, accent: accent, style: .full, speak: {
+                    speakLookupWord(selection.word)
+                })
+            }
+            .frame(minWidth: 420, minHeight: 480)
         }
     }
 
@@ -243,10 +293,10 @@ struct ContentView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .background(ReaderTheme.paperStrong(colorScheme), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(.white.opacity(0.9), lineWidth: 1)
+                    .stroke(ReaderTheme.cardStroke(colorScheme), lineWidth: 1)
             }
             .shadow(color: ReaderTheme.primary.opacity(0.10), radius: 14, y: 6)
         }
@@ -302,10 +352,7 @@ struct ContentView: View {
 
     private var headerCompactActions: some View {
         Menu {
-            Button {
-                if isEditingText { text = EnglishTextFormatter.formatArticle(text) }
-                isEditingText.toggle()
-            } label: {
+            Button(action: toggleEditing) {
                 Label(isEditingText ? "进入阅读" : "编辑文本", systemImage: isEditingText ? "play.circle.fill" : "square.and.pencil")
             }
 
@@ -335,10 +382,7 @@ struct ContentView: View {
     }
 
     private var headerPrimaryAction: some View {
-        Button {
-            if isEditingText { text = EnglishTextFormatter.formatArticle(text) }
-            isEditingText.toggle()
-        } label: {
+        Button(action: toggleEditing) {
             Label(isEditingText ? "进入阅读" : "编辑文本", systemImage: isEditingText ? "play.circle.fill" : "square.and.pencil")
         }
         .buttonStyle(ReaderFilledButtonStyle())
@@ -382,7 +426,7 @@ struct ContentView: View {
                 .allowsHitTesting(false)
             }
         }
-        .background(.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(ReaderTheme.paper(colorScheme), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(ReaderTheme.primary.opacity(0.12), lineWidth: 1)
@@ -403,7 +447,7 @@ struct ContentView: View {
                 }
             }
         }
-        .background(.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(ReaderTheme.paper(colorScheme), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(ReaderTheme.primary.opacity(0.14), lineWidth: 1)
         }
@@ -465,7 +509,7 @@ struct ContentView: View {
                     HStack(spacing: 7) {
                         Image(systemName: "hand.tap")
                             .foregroundStyle(ReaderTheme.primary)
-                        Text("单击句首朗读 · 单击单词标记 · 双击查看词义")
+                        Text("点按单词可标记 · 长按或右键查看词义 · 点句首播放按钮从该句朗读")
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -483,61 +527,94 @@ struct ContentView: View {
         let word = token.lookupWord
         let isCurrentlySpoken = activeSpokenWordIndex == wordIndex
         let hasBeenRead = (activeSpokenWordIndex ?? -1) >= wordIndex
-        return Text(token.display)
+        let isMarked = highlightedTokens.contains(id)
+        return HStack(alignment: .center, spacing: 2) {
+            if isSentenceStart {
+                Button {
+                    readSentenceFromStart(at: wordIndex)
+                } label: {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: max(9, fontSize * 0.42), weight: .bold))
+                        .foregroundStyle(ReaderTheme.primary)
+                        .frame(width: max(22, fontSize), height: max(22, fontSize))
+                        .background(ReaderTheme.primary.opacity(colorScheme == .dark ? 0.28 : 0.12), in: Circle())
+                }
+                .buttonStyle(TokenButtonStyle())
+                .accessibilityLabel("从本句开头朗读")
+                .accessibilityHint("从第 \(wordIndex + 1) 个词开始播放，并同步进度")
+            }
+
+            if let word {
+                Button {
+                    toggleHighlight(id)
+                } label: {
+                    tokenLabel(token, isCurrentlySpoken: isCurrentlySpoken, hasBeenRead: hasBeenRead, isMarked: isMarked)
+                }
+                .buttonStyle(TokenButtonStyle())
+                .fixedSize()
+                .accessibilityLabel(word)
+                .accessibilityHint("点按标记或取消标记。长按或打开菜单可查看词义。")
+                .accessibilityValue(isCurrentlySpoken ? "正在朗读" : (isMarked ? "已标记" : "未标记"))
+                .accessibilityAddTraits(isMarked ? .isSelected : AccessibilityTraits())
+                .accessibilityAction(named: Text("查看词义")) {
+                    showWordDetail(id: id, word: word)
+                }
+                .accessibilityAction(named: Text("朗读单词")) {
+                    speakLookupWord(word)
+                }
+                .contextMenu {
+                    Button("查看词义") { showWordDetail(id: id, word: word) }
+                    Button("朗读单词") { speakLookupWord(word) }
+                    if isSentenceStart {
+                        Button("从本句开头朗读") { readSentenceFromStart(at: wordIndex) }
+                    }
+                    Button(isMarked ? "取消标记" : "标记单词") { toggleHighlight(id) }
+                }
+                .help("点按标记，长按或右键查看词义")
+            } else {
+                tokenLabel(token, isCurrentlySpoken: isCurrentlySpoken, hasBeenRead: hasBeenRead, isMarked: false)
+                    .accessibilityHidden(token.display.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .fixedSize()
+        .id("spoken-word-\(wordIndex)")
+        .popover(item: wordSelectionBinding(for: id), arrowEdge: .bottom) { selection in
+            WordDetailView(word: selection.word, accent: accent, style: .card, speak: {
+                speakLookupWord(selection.word)
+            }, onExpand: {
+                let next = selection
+                selectedWord = nil
+                DispatchQueue.main.async {
+                    expandedWord = next
+                }
+            })
+        }
+    }
+
+    private func tokenLabel(_ token: ReadingToken, isCurrentlySpoken: Bool, hasBeenRead: Bool, isMarked: Bool) -> some View {
+        Text(token.display)
             .font(.system(size: fontSize, design: fontStyle.design))
             .fontWeight(isCurrentlySpoken ? .bold : .regular)
-            .foregroundStyle(hasBeenRead ? Color.blue : Color.primary)
+            .foregroundStyle(hasBeenRead ? ReaderTheme.read(colorScheme) : Color.primary)
             .padding(.horizontal, 2)
             .padding(.vertical, 1)
             .background(
                 isCurrentlySpoken
-                    ? Color.green.opacity(0.60)
-                    : (highlightedTokens.contains(id) ? Color.yellow.opacity(0.65) : Color.clear),
+                    ? ReaderTheme.currentWord(colorScheme)
+                    : (isMarked ? ReaderTheme.markedWord(colorScheme) : Color.clear),
                 in: RoundedRectangle(cornerRadius: 4)
             )
             .scaleEffect(isCurrentlySpoken ? 1.08 : 1.0)
             .animation(.easeInOut(duration: 0.15), value: isCurrentlySpoken)
-            .id("spoken-word-\(wordIndex)")
             .contentShape(Rectangle())
-            .gesture(
-                TapGesture(count: 2)
-                    .exclusively(before: TapGesture(count: 1))
-                    .onEnded { gesture in
-                        switch gesture {
-                        case .first(_):
-                            // 双击始终是查词，包括句首的第一个单词。
-                            guard let word else { return }
-                            selectedWord = WordSelection(id: id, word: word)
-                        case .second(_):
-                            // 单击句首：从本句开头朗读并同步进度条；
-                            // 单击其他单词：切换高亮。
-                            if isSentenceStart {
-                                readSentenceFromStart(at: wordIndex)
-                            } else {
-                                guard word != nil else { return }
-                                if highlightedTokens.contains(id) {
-                                    highlightedTokens.remove(id)
-                                } else {
-                                    highlightedTokens.insert(id)
-                                }
-                            }
-                        }
-                    }
-            )
-            .popover(item: wordSelectionBinding(for: id), arrowEdge: .bottom) { selection in
-                WordDetailView(word: selection.word, accent: accent) {
-                            speech.speakWord(selection.word, accent: accent, voiceIdentifier: selectedVoice, elevenLabsSettings: elevenLabsSettings, deepgramSettings: deepgramSettings)
-                }
-            }
-            .help(tokenHelp(isSentenceStart: isSentenceStart, canLookUp: word != nil))
     }
 
-    private func tokenHelp(isSentenceStart: Bool, canLookUp: Bool) -> String {
-        guard canLookUp || isSentenceStart else { return "" }
-        if isSentenceStart {
-            return canLookUp ? "单击从本句开头朗读，双击查看音标和词义" : "单击从本句开头朗读"
+    private func toggleHighlight(_ id: String) {
+        if highlightedTokens.contains(id) {
+            highlightedTokens.remove(id)
+        } else {
+            highlightedTokens.insert(id)
         }
-        return "双击查看音标和词义，单击高亮"
     }
 
     /// 单击句首单词：从该句的第一个词开始（或跳转继续）朗读，并把进度条同步到句首。
@@ -575,14 +652,17 @@ struct ContentView: View {
     }
 
     private var controls: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             if audio.hasAudio {
                 audioControls
                 if usesTTSForAudio {
                     compactTextControls
                 }
-            } else if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            } else if hasLoadedContent {
                 compactTextControls
+            }
+            if hasLoadedContent {
+                speechRateControl
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -590,9 +670,25 @@ struct ContentView: View {
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(.white.opacity(0.8), lineWidth: 1)
+                .stroke(ReaderTheme.cardStroke(colorScheme), lineWidth: 1)
         }
         .shadow(color: ReaderTheme.primary.opacity(0.05), radius: 6, y: 2)
+    }
+
+    private var speechRateControl: some View {
+        HStack(spacing: 8) {
+            Text("语速")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Slider(value: $settings.speed, in: 0.18...0.68, step: 0.01)
+                .accessibilityLabel("语速")
+                .accessibilityValue(String(format: "%.2f 倍", speed / 0.45))
+            Text(String(format: "%.2f×", speed / 0.45))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .trailing)
+                .accessibilityHidden(true)
+        }
     }
 
     private var compactTextControls: some View {
@@ -647,7 +743,7 @@ struct ContentView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(ReaderTheme.sunshine.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(ReaderTheme.sunshine.opacity(colorScheme == .dark ? 0.24 : 0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var ttsControls: some View {
@@ -704,26 +800,6 @@ struct ContentView: View {
                     }
                 }
                 .help(isAudioProgressVisible ? "点击隐藏播放进度" : "点击显示播放进度")
-
-                if !usesTTSForAudio {
-                    TextField("倍率", text: $audioPlaybackRateInput)
-                        .textFieldStyle(.roundedBorder)
-                        .multilineTextAlignment(.trailing)
-                        .monospacedDigit()
-                        .frame(width: 58)
-                        .focused($isAudioPlaybackRateFocused)
-                        .onChange(of: audioPlaybackRateInput) { input in
-                            updateAudioPlaybackRateInput(input)
-                        }
-                        .onChange(of: isAudioPlaybackRateFocused) { isFocused in
-                            if !isFocused { commitAudioPlaybackRateInput() }
-                        }
-                        .onSubmit { commitAudioPlaybackRateInput() }
-                        .accessibilityLabel("音频播放倍率，范围 0.1 到 4")
-                    Text("×")
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                }
             }
 
             Picker("朗读来源", selection: $usesTTSForAudio) {
@@ -766,6 +842,11 @@ struct ContentView: View {
                 )
                 .tint(.accentColor)
                 .disabled(!audio.canControlPlayback)
+                .accessibilityHint(audio.loopLowerBound == nil ? "拖动调整播放位置" : "正在循环播放标记片段")
+
+                if loopStart != nil || audio.loopLowerBound != nil {
+                    audioLoopTrack
+                }
 
                 HStack {
                     Text(audio.formattedTime(audio.currentTime)).monospacedDigit()
@@ -777,28 +858,93 @@ struct ContentView: View {
             }
 
             if !usesTTSForAudio {
-                Menu {
-                    Button { audio.skip(by: -15) } label: { Label("后退 15 秒", systemImage: "gobackward.15") }
-                    Button { audio.skip(by: 15) } label: { Label("前进 15 秒", systemImage: "goforward.15") }
-                    Button {
-                        if let start = loopStart {
-                            audio.setLoop(start: start, end: audio.currentTime)
-                            loopStart = nil
-                        } else { loopStart = audio.currentTime }
-                    } label: { Label(loopStart == nil ? "设 A 点" : "设 B 点", systemImage: "repeat") }
-                } label: { Label("精听", systemImage: "repeat") }
-                .buttonStyle(ReaderOutlinedButtonStyle())
-
-                Button { audio.togglePlayback() } label: {
-                    Label(audio.isPlaying ? "暂停音频" : "播放音频", systemImage: audio.isPlaying ? "pause.fill" : "play.fill")
-                        .frame(minWidth: 110)
+                HStack(spacing: 8) {
+                    Image(systemName: "speedometer")
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    Slider(value: $audioPlaybackRate, in: 0.1...4.0, step: 0.1)
+                        .accessibilityLabel("音频播放倍率，范围 0.1 到 4")
+                    Text(String(format: "%.1f×", audioPlaybackRate))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, alignment: .trailing)
+                        .accessibilityHidden(true)
                 }
-                .buttonStyle(ReaderFilledButtonStyle())
-                .disabled(!audio.canControlPlayback)
+
+                HStack(spacing: 8) {
+                    Button { audio.skip(by: -15) } label: {
+                        Image(systemName: "gobackward.15")
+                            .frame(minWidth: 28, minHeight: 22)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(!audio.canControlPlayback)
+                    .accessibilityLabel("后退 15 秒")
+
+                    Button { audio.togglePlayback() } label: {
+                        Label(audio.isPlaying ? "暂停音频" : "播放音频", systemImage: audio.isPlaying ? "pause.fill" : "play.fill")
+                    }
+                    .buttonStyle(ReaderFilledButtonStyle())
+                    .disabled(!audio.canControlPlayback)
+
+                    Button { audio.skip(by: 15) } label: {
+                        Image(systemName: "goforward.15")
+                            .frame(minWidth: 28, minHeight: 22)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(!audio.canControlPlayback)
+                    .accessibilityLabel("前进 15 秒")
+                }
+
+                HStack(spacing: 8) {
+                    Button {
+                        loopStart = audio.currentTime
+                        loopHint = nil
+                    } label: {
+                        Label(loopATitle, systemImage: "a.circle")
+                    }
+                    .accessibilityLabel("设 A 点")
+                    .accessibilityValue(loopAAccessibilityValue)
+
+                    Button {
+                        guard let start = loopStart else { return }
+                        if audio.setLoop(start: start, end: audio.currentTime) {
+                            loopStart = nil
+                            loopHint = nil
+                        } else {
+                            loopHint = "B 点需要晚于 A 点至少 0.3 秒"
+                        }
+                    } label: {
+                        Label(loopBTitle, systemImage: "b.circle")
+                    }
+                    .disabled(loopStart == nil)
+                    .accessibilityLabel("设 B 点")
+                    .accessibilityValue(audio.loopUpperBound.map { audio.formattedTime($0) } ?? "未设置")
+
+                    if loopStart != nil || audio.loopLowerBound != nil {
+                        Button {
+                            loopStart = nil
+                            loopHint = nil
+                            audio.clearLoop()
+                        } label: {
+                            Label("清除", systemImage: "xmark.circle")
+                        }
+                        .accessibilityLabel("清除循环")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                if let loopHint {
+                    Text(loopHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(12)
-        .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(ReaderTheme.paper(colorScheme), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(ReaderTheme.primary.opacity(0.12), lineWidth: 1)
         }
@@ -862,55 +1008,150 @@ struct ContentView: View {
         elevenLabsSpeechConfiguration.deepgramSettings()
     }
 
-    private func updateAudioPlaybackRateInput(_ input: String) {
-        let sanitized = sanitizedAudioPlaybackRateInput(input)
-        if sanitized != input {
-            audioPlaybackRateInput = sanitized
-            return
-        }
-        guard let rate = Double(sanitized), (0.1...4.0).contains(rate) else { return }
-        audioPlaybackRate = rate
-    }
-
-    private func commitAudioPlaybackRateInput() {
-        let rate = Double(audioPlaybackRateInput) ?? audioPlaybackRate
-        audioPlaybackRate = min(4.0, max(0.1, rate))
-        audioPlaybackRateInput = String(format: "%.1f", audioPlaybackRate)
-    }
-
-    private func sanitizedAudioPlaybackRateInput(_ input: String) -> String {
-        var result = ""
-        var hasDecimalSeparator = false
-        var decimalDigitCount = 0
-
-        for character in input {
-            if character.isWholeNumber {
-                if hasDecimalSeparator {
-                    guard decimalDigitCount < 1 else { continue }
-                    result.append(character)
-                    decimalDigitCount += 1
-                } else {
-                    // The allowed range never needs more than one integer digit.
-                    guard result.isEmpty, character <= "4" else { continue }
-                    result.append(character)
-                }
-            } else if character == ".", !hasDecimalSeparator {
-                if result.isEmpty { result = "0" }
-                result.append(character)
-                hasDecimalSeparator = true
-            }
-        }
-        return result
-    }
-
     private var selectedVoice: String? {
         selectedVoiceIdentifier.isEmpty ? nil : selectedVoiceIdentifier
     }
 
+    private var loopATitle: String {
+        if let start = loopStart {
+            return "A \(audio.formattedTime(start))"
+        }
+        if let start = audio.loopLowerBound {
+            return "A \(audio.formattedTime(start))"
+        }
+        return "设 A 点"
+    }
+
+    private var loopAAccessibilityValue: String {
+        if let start = loopStart ?? audio.loopLowerBound {
+            return audio.formattedTime(start)
+        }
+        return "未设置"
+    }
+
+    private var loopBTitle: String {
+        if loopStart == nil, let end = audio.loopUpperBound {
+            return "B \(audio.formattedTime(end))"
+        }
+        return "设 B 点"
+    }
+
+    private var audioLoopTrack: some View {
+        Color.clear
+            .frame(height: 22)
+            .overlay {
+                GeometryReader { geo in
+                    let width = geo.size.width
+                    let span = max(audio.duration, 0.01)
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.25))
+                            .frame(height: 3)
+                            .frame(maxHeight: .infinity, alignment: .center)
+                        if loopStart == nil, let start = audio.loopLowerBound, let end = audio.loopUpperBound {
+                            let origin = CGFloat(start / span) * width
+                            let markWidth = CGFloat(max(0, end - start) / span) * width
+                            Capsule()
+                                .fill(ReaderTheme.primary.opacity(0.55))
+                                .frame(width: max(2, markWidth), height: 3)
+                                .frame(maxHeight: .infinity, alignment: .center)
+                                .offset(x: origin)
+                        }
+                        if let start = loopStart ?? audio.loopLowerBound {
+                            loopTick("A", x: CGFloat(start / span) * width, width: width)
+                        }
+                        if loopStart == nil, let end = audio.loopUpperBound {
+                            loopTick("B", x: CGFloat(end / span) * width, width: width)
+                        }
+                    }
+                }
+            }
+            .accessibilityHidden(true)
+    }
+
+    private func loopTick(_ title: String, x: CGFloat, width: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            Circle()
+                .fill(ReaderTheme.primary)
+                .frame(width: 7, height: 7)
+            Text(title)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(ReaderTheme.primary)
+        }
+        .fixedSize()
+        .offset(x: min(max(0, x - 6), max(0, width - 14)))
+    }
+
+    private func toggleEditing() {
+        if isEditingText { text = EnglishTextFormatter.formatArticle(text) }
+        isEditingText.toggle()
+    }
+
+    private func showWordDetail(id: String, word: String) {
+        selectedWord = WordSelection(id: id, word: word)
+    }
+
+    private func speakLookupWord(_ word: String) {
+        speech.speakWord(
+            word,
+            accent: accent,
+            voiceIdentifier: selectedVoice,
+            elevenLabsSettings: elevenLabsSettings,
+            deepgramSettings: deepgramSettings
+        )
+    }
+
+#if os(iOS)
+    private var preferencesForm: some View {
+        PreferencesView(
+            localWhisperConfiguration: localWhisperConfiguration,
+            elevenLabsSpeechConfiguration: elevenLabsSpeechConfiguration,
+            accent: $settings.accent,
+            selectedVoiceIdentifier: $settings.selectedVoiceIdentifier,
+            speed: $settings.speed,
+            childMode: $settings.childMode,
+            wordPause: $settings.wordPause,
+            fontStyle: $settings.fontStyle,
+            fontSize: $settings.fontSize
+        )
+    }
+#endif
+
+    private func openPreferences() {
+#if os(iOS)
+        isShowingPreferences = true
+#endif
+    }
+
+    private func showReaderColumnIfCompact() {
+        if horizontalSizeClass == .compact {
+            columnVisibility = .detailOnly
+        }
+    }
+
+    private func openRecentArticle(_ item: RecentArticle) {
+        text = item.text
+        pendingReadingWordIndex = Double(item.position)
+        isEditingText = false
+        isShowingLibrary = false
+        showReaderColumnIfCompact()
+    }
+
+    private var chineseTranslationBinding: Binding<Bool> {
+        Binding(
+            get: { showsChineseTranslation },
+            set: { setChineseTranslation($0) }
+        )
+    }
+
     private func toggleChineseTranslation() {
-        let enabled = !showsChineseTranslation
+        setChineseTranslation(!showsChineseTranslation)
+    }
+
+    private func setChineseTranslation(_ enabled: Bool) {
+        guard enabled != showsChineseTranslation else { return }
         showsChineseTranslation = enabled
-        if enabled, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if enabled, hasLoadedContent {
             text = EnglishTextFormatter.formatArticle(text)
             isEditingText = false
         }
@@ -1136,7 +1377,7 @@ private struct AppleTranslationRunner: View {
 }
 #endif
 
-private enum ReaderTheme {
+enum ReaderTheme {
     static let primary = Color(red: 0.29, green: 0.37, blue: 0.90)
     static let mint = Color(red: 0.55, green: 0.89, blue: 0.78)
     static let sunshine = Color(red: 1.00, green: 0.82, blue: 0.36)
@@ -1145,11 +1386,167 @@ private enum ReaderTheme {
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
-    static let canvas = LinearGradient(
-        colors: [Color(red: 0.96, green: 0.98, blue: 1.00), Color(red: 1.00, green: 0.97, blue: 0.90)],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
+
+    static func canvas(_ scheme: ColorScheme) -> LinearGradient {
+        switch scheme {
+        case .dark:
+            return LinearGradient(
+                colors: [Color(red: 0.07, green: 0.08, blue: 0.12), Color(red: 0.12, green: 0.10, blue: 0.08)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        default:
+            return LinearGradient(
+                colors: [Color(red: 0.96, green: 0.98, blue: 1.00), Color(red: 1.00, green: 0.97, blue: 0.90)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+
+    static func settingsBackground(_ scheme: ColorScheme) -> LinearGradient {
+        switch scheme {
+        case .dark:
+            return LinearGradient(
+                colors: [Color(red: 0.10, green: 0.11, blue: 0.16), Color(red: 0.10, green: 0.13, blue: 0.12)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        default:
+            return LinearGradient(
+                colors: [Color(red: 0.94, green: 0.96, blue: 1.00), Color(red: 0.96, green: 1.00, blue: 0.96)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+    }
+
+    /// Already-read word color. Light mode keeps the previous blue.
+    static func read(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 0.62, green: 0.78, blue: 1.00) : .blue
+    }
+
+    /// Background behind the word currently being spoken.
+    static func currentWord(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0.35, green: 0.82, blue: 0.55).opacity(0.55)
+            : Color.green.opacity(0.60)
+    }
+
+    /// Background for a manually marked word.
+    static func markedWord(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0.98, green: 0.80, blue: 0.30).opacity(0.45)
+            : Color.yellow.opacity(0.65)
+    }
+
+    static func paper(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.07) : Color.white.opacity(0.75)
+    }
+
+    static func paperStrong(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.10) : Color.white.opacity(0.78)
+    }
+
+    static func cardStroke(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.14) : Color.white.opacity(0.90)
+    }
+}
+
+private struct OpenPreferencesButton: View {
+    var fillsWidth = false
+    var action: () -> Void = {}
+
+    var body: some View {
+        Group {
+#if os(macOS)
+            SettingsLink {
+                label
+            }
+#else
+            Button(action: action) {
+                label
+            }
+#endif
+        }
+        .accessibilityHint("打开完整偏好设置")
+    }
+
+    private var label: some View {
+        Label("偏好设置", systemImage: "gearshape")
+            .frame(maxWidth: fillsWidth ? .infinity : nil)
+    }
+}
+
+private struct ReadingSidebar: View {
+    let recentArticles: [RecentArticle]
+    let hasLoadedContent: Bool
+    let showsReaderLink: Bool
+    @Binding var childMode: Bool
+    @Binding var showsChineseTranslation: Bool
+    @Binding var accent: EnglishAccent
+    let onSelect: (RecentArticle) -> Void
+    let onShowReader: () -> Void
+    let onOpenPreferences: () -> Void
+
+    var body: some View {
+        List {
+            if showsReaderLink {
+                Section {
+                    Button(action: onShowReader) {
+                        Label(hasLoadedContent ? "当前阅读" : "开始阅读", systemImage: "book")
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Section {
+                if recentArticles.isEmpty {
+                    Text("还没有最近阅读。导入或粘贴文章后会显示在这里。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(recentArticles) { item in
+                        Button {
+                            onSelect(item)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.title).lineLimit(2)
+                                Text("第 \(item.position + 1) 个词继续")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("从第 \(item.position + 1) 个词继续阅读")
+                    }
+                }
+            } header: {
+                Text("最近阅读")
+            }
+
+            Section {
+                Toggle("儿童模式", isOn: $childMode)
+                Toggle("中文翻译", isOn: $showsChineseTranslation)
+                Picker("英语口音", selection: $accent) {
+                    ForEach(EnglishAccent.allCases) { item in
+                        Text(item.rawValue).tag(item)
+                    }
+                }
+            } header: {
+                Text("快捷开关")
+            } footer: {
+                Text("语速在阅读区的播放控制里调节。完整的声音、字体和转写设置在偏好设置中。")
+            }
+        }
+        .listStyle(.sidebar)
+        .navigationTitle("阅读")
+        .safeAreaInset(edge: .bottom) {
+            OpenPreferencesButton(fillsWidth: true, action: onOpenPreferences)
+                .buttonStyle(ReaderOutlinedButtonStyle())
+                .padding(12)
+        }
+    }
 }
 
 /// Explicit button colors keep controls legible in both light and dark system appearances.
@@ -1167,6 +1564,14 @@ struct ReaderFilledButtonStyle: ButtonStyle {
             .contentShape(Capsule())
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// Leaves the label's own colors alone, so read / current / mark highlights stay visible.
+private struct TokenButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.72 : 1)
     }
 }
 

@@ -14,6 +14,8 @@ final class AudioPlaybackController: ObservableObject {
     @Published private(set) var transcriptionStatus: String?
     @Published private(set) var isTranscribing = false
     @Published private(set) var canReadWhileTranscribing = false
+    @Published private(set) var loopLowerBound: Double?
+    @Published private(set) var loopUpperBound: Double?
 
     private struct TimedWord {
         let text: String
@@ -185,9 +187,19 @@ final class AudioPlaybackController: ObservableObject {
 
     func skip(by seconds: Double) { seek(to: currentTime + seconds) }
 
-    func setLoop(start: Double, end: Double) {
-        guard end > start + 0.3 else { return }
+    @discardableResult
+    func setLoop(start: Double, end: Double) -> Bool {
+        guard end > start + 0.3 else { return false }
         loopRange = start...end
+        loopLowerBound = start
+        loopUpperBound = end
+        return true
+    }
+
+    func clearLoop() {
+        loopRange = nil
+        loopLowerBound = nil
+        loopUpperBound = nil
     }
 
     /// Jumps to the whitespace token index the reader uses and resumes playback,
@@ -410,6 +422,7 @@ final class AudioPlaybackController: ObservableObject {
     }
 
     private func stopAndReleaseFile() {
+        clearLoop()
         player?.pause()
         cancelTranscription()
         if let timeObserver { player?.removeTimeObserver(timeObserver) }

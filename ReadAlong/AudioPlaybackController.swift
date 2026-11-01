@@ -34,10 +34,11 @@ final class AudioPlaybackController: ObservableObject {
     private var whisperText = ""
     private var hasWhisperWordAlignment = true
     private var isSeeking = false
-    private var loopRange: ClosedRange<Double>?
+    @Published private var loopRange: ClosedRange<Double>?
 
     var hasAudio: Bool { player != nil }
     var canControlPlayback: Bool { hasAudio }
+    var hasLoop: Bool { loopRange != nil }
 
     deinit {
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
@@ -81,7 +82,8 @@ final class AudioPlaybackController: ObservableObject {
         transcriptionTask?.cancel()
         transcriptionTask = nil
         if isTranscribing {
-            transcriptionStatus = "已停止识别"
+            // Clearing the status lets the footnote return to its steady hint.
+            transcriptionStatus = nil
             isTranscribing = false
         }
     }
@@ -185,9 +187,18 @@ final class AudioPlaybackController: ObservableObject {
 
     func skip(by seconds: Double) { seek(to: currentTime + seconds) }
 
-    func setLoop(start: Double, end: Double) {
-        guard end > start + 0.3 else { return }
+    /// Sets an A-B loop. Returns false, without changing the current loop, when
+    /// `end` is not more than 0.3 seconds after `start`.
+    @discardableResult
+    func setLoop(start: Double, end: Double) -> Bool {
+        guard end > start + 0.3 else { return false }
         loopRange = start...end
+        return true
+    }
+
+    func clearLoop() {
+        guard loopRange != nil else { return }
+        loopRange = nil
     }
 
     /// Jumps to the whitespace token index the reader uses and resumes playback,
@@ -428,6 +439,7 @@ final class AudioPlaybackController: ObservableObject {
         isPlaying = false
         isTranscribing = false
         canReadWhileTranscribing = false
+        clearLoop()
     }
 }
 

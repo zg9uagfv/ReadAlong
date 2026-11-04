@@ -10,13 +10,15 @@ struct PreferencesView: View {
     @Binding var wordPause: Double
     @Binding var fontStyle: DisplayFontStyle
     @Binding var fontSize: Double
+    @Binding var themeMode: String
     @State private var isTTSExpanded = false
     @State private var isElevenLabsExpanded = true
     @State private var isUsingCustomDeepgramModel = false
     @State private var isChildModeExpanded = false
-    @State private var isTypographyExpanded = false
     @State private var isLocalWhisperExpanded = false
     @State private var isAboutExpanded = false
+    @State private var isAppearanceExpanded = false
+    @State private var isConfigurationExpanded = false
 
     private let deepgramVoicePresets: [DeepgramVoicePreset] = [
         .init(id: "aura-2-thalia-en", name: "Thalia · 清晰、有活力"),
@@ -65,6 +67,31 @@ struct PreferencesView: View {
     var body: some View {
         Form {
             Section {
+                HStack(spacing: 10) {
+                    Image(systemName: "book.closed.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(ReaderTheme.canvasText)
+                        .frame(width: 34, height: 34)
+                        .background(ReaderTheme.brandSurface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("ReadAlong")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text("英语伴读")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text("EN")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(ReaderTheme.primary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(ReaderTheme.badgeSurface, in: Capsule())
+                }
+                .padding(.vertical, 3)
+            }
+
+            Section {
                 DisclosureGroup(isExpanded: $isTTSExpanded) {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("朗读引擎")
@@ -87,7 +114,7 @@ struct PreferencesView: View {
                                     Button("填入免费示例声音") {
                                         elevenLabsSpeechConfiguration.useSampleVoices()
                                     }
-                                    .buttonStyle(ReaderOutlinedButtonStyle())
+                                    .buttonStyle(ReaderOutlinedButtonStyle(isBlackTheme: ReaderTheme.isBlackTheme))
                                     settingField("模型 ID", value: $elevenLabsSpeechConfiguration.modelID)
                                     if elevenLabsSpeechConfiguration.settings(for: accent) == nil {
                                         Label("请填写 API Key 和当前口音对应的 Voice ID。", systemImage: "exclamationmark.triangle")
@@ -202,7 +229,14 @@ struct PreferencesView: View {
                         .onTapGesture { isTTSExpanded.toggle() }
                 }
 
-                DisclosureGroup(isExpanded: $isTypographyExpanded) {
+            } header: {
+                Label("常用阅读设置", systemImage: "slider.horizontal.3")
+            }
+
+            Section {
+                DisclosureGroup(isExpanded: $isConfigurationExpanded) {
+                    VStack(alignment: .leading, spacing: 12) {
+                DisclosureGroup {
                     Picker("字体", selection: $fontStyle) {
                         ForEach(DisplayFontStyle.allCases) { style in
                             Text(style.rawValue).tag(style)
@@ -222,60 +256,63 @@ struct PreferencesView: View {
                 } label: {
                     Label("文字显示", systemImage: "textformat.size")
                         .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .onTapGesture { isTypographyExpanded.toggle() }
                 }
-            } header: {
-                Label("常用阅读设置", systemImage: "slider.horizontal.3")
-            }
 
-            Section {
                 DisclosureGroup(isExpanded: $isChildModeExpanded) {
-                        Toggle("启用儿童模式", isOn: $childMode)
-                        if childMode {
-                            LabeledContent("单词间停顿") {
-                                HStack {
-                                    Slider(value: $wordPause, in: 0.0...2.0, step: 0.5)
-                                    HStack(spacing: 2) {
-                                        TextField(
-                                            "",
-                                            value: wordPauseInput,
-                                            format: .number.precision(.fractionLength(0...2))
-                                        )
+                    Toggle("启用儿童模式", isOn: $childMode)
+                    if childMode {
+                        LabeledContent("单词间停顿") {
+                            HStack {
+                                Slider(value: $wordPause, in: 0.0...2.0, step: 0.5)
+                                HStack(spacing: 2) {
+                                    TextField("", value: wordPauseInput, format: .number.precision(.fractionLength(0...2)))
                                         .textFieldStyle(.roundedBorder)
                                         .multilineTextAlignment(.trailing)
                                         .monospacedDigit()
                                         .frame(width: 52)
                                         .accessibilityLabel("单词间停顿秒数")
-                                        Text("秒")
-                                    }
-                                    .frame(width: 64, alignment: .trailing)
+                                    Text("秒")
                                 }
+                                .frame(width: 64, alignment: .trailing)
                             }
                         }
-                        Text(elevenLabsSpeechConfiguration.provider == .elevenLabs
-                            ? "先合成整段语音，再在本机按时间戳补足词间停顿；当前段的调整从下一段生效。"
-                            : elevenLabsSpeechConfiguration.provider == .deepgram
-                            ? "Deepgram 按自然语流分段合成；目前不支持逐词时间戳和词间停顿。"
-                            : "系统语音逐词朗读，每个词结束后按设定时长停顿。")
-                            .font(.callout)
+                    }
+                    Text(elevenLabsSpeechConfiguration.provider == .elevenLabs
+                        ? "先合成整段语音，再在本机按时间戳补足词间停顿；当前段的调整从下一段生效。"
+                        : elevenLabsSpeechConfiguration.provider == .deepgram
+                        ? "Deepgram 按自然语流分段合成；目前不支持逐词时间戳和词间停顿。"
+                        : "系统语音逐词朗读，每个词结束后按设定时长停顿。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Text("儿童模式用于 TTS 朗读。导入音频时，请在播放区选择“TTS 朗读”；播放原音频不会改变其语速和停顿。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } label: {
+                    Label("儿童模式", systemImage: "figure.and.child.holdinghands")
+                        .font(.body.weight(.semibold))
+                }
+
+                DisclosureGroup(isExpanded: $isAppearanceExpanded) {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("界面主题")
+                            .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                        Text("儿童模式用于 TTS 朗读。导入音频时，请在播放区选择“TTS 朗读”；播放原音频不会改变其语速和停顿。")
+                        HStack(spacing: 8) {
+                            themeOption("极光渐变", mode: .classic)
+                            themeOption("黑色主题", mode: .black)
+                        }
+                        Text(themeMode == ReaderThemeMode.black.rawValue
+                             ? "纯黑画布、炭黑面板与低饱和文字强调。"
+                             : "紫蓝极光渐变背景、靛紫玻璃面板与荧光色强调。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 4)
                 } label: {
-                        Label("儿童模式", systemImage: "figure.and.child.holdinghands")
-                            .font(.body.weight(.semibold))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                            .onTapGesture { isChildModeExpanded.toggle() }
+                    Label("外观与主题", systemImage: "circle.lefthalf.filled")
+                        .font(.body.weight(.semibold))
                 }
-            } header: {
-                Label("学习模式", systemImage: "graduationcap")
-            }
 
-            Section {
                 DisclosureGroup(isExpanded: $isLocalWhisperExpanded) {
                     Toggle("优先使用本地 Whisper（仅 macOS）", isOn: $localWhisperConfiguration.localWhisperEnabled)
                     if localWhisperConfiguration.localWhisperEnabled {
@@ -341,23 +378,22 @@ struct PreferencesView: View {
                         .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
-                        .onTapGesture { isAboutExpanded.toggle() }
                 }
-            } header: {
-                Label("高级与关于", systemImage: "gearshape.2")
+                    }
+                    .padding(.vertical, 4)
+                } label: {
+                    Label("配置", systemImage: "gearshape.2")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
             }
             }
         .formStyle(.grouped)
         .font(.body)
         .scrollContentBackground(.hidden)
-        .background(
-            LinearGradient(
-                colors: [Color(red: 0.94, green: 0.96, blue: 1.00), Color(red: 0.96, green: 1.00, blue: 0.96)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-        .tint(Color(red: 0.29, green: 0.37, blue: 0.90))
+        .background(ReaderCanvasBackground(themeMode: themeMode))
+        .tint(ReaderTheme.primary)
         .navigationTitle("偏好设置")
     }
 
@@ -368,6 +404,33 @@ struct PreferencesView: View {
                 speed = min(max(multiplier * 0.45, 0.18), 0.68)
             }
         )
+    }
+
+    private func themeOption(_ title: String, mode: ReaderThemeMode) -> some View {
+        let isSelected = themeMode == mode.rawValue
+        return Button {
+            themeMode = mode.rawValue
+            ReaderTheme.setMode(mode.rawValue)
+        } label: {
+            HStack(spacing: 6) {
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.caption2.weight(.bold))
+                }
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, minHeight: 32)
+            .foregroundStyle(ReaderTheme.canvasText)
+            .background(isSelected ? ReaderTheme.primary.opacity(0.34) : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(isSelected ? ReaderTheme.primary : ReaderTheme.border, lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -412,7 +475,7 @@ struct PreferencesView: View {
     }
 
     private var brandColor: Color {
-        Color(red: 0.29, green: 0.37, blue: 0.90)
+        ReaderTheme.primary
     }
 
     private var buildNumber: String {

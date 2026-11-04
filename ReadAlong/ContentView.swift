@@ -51,6 +51,7 @@ struct ContentView: View {
     @State private var translationTask: Task<Void, Never>?
     @State private var appleTranslationPassages: [String] = []
     @State private var appleTranslationRequestID = UUID()
+    @AppStorage("readalongTheme") private var themeMode = ReaderThemeMode.classic.rawValue
     @FocusState private var isAudioPlaybackRateFocused: Bool
 
     private var wordCount: Int {
@@ -68,26 +69,36 @@ struct ContentView: View {
                 childMode: $childMode,
                 wordPause: $wordPause,
                 fontStyle: $fontStyle,
-                fontSize: $fontSize
+                fontSize: $fontSize,
+                themeMode: $themeMode
             )
-            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+            .navigationSplitViewColumnWidth(245)
         } detail: {
             NavigationStack {
                 ZStack {
-                    ReaderTheme.canvas.ignoresSafeArea()
-                    VStack(spacing: 20) {
+                    ReaderCanvasBackground(themeMode: themeMode).ignoresSafeArea()
+                    VStack(spacing: audio.isTranscribing ? 10 : 20) {
                         header
+                        if !audio.isTranscribing {
+                            readingOverview
+                        }
                         if isEditingText {
                             editor
                         } else {
                             readingView
                         }
-                        if showsPlaybackBar {
-                            playbackBar
-                        }
                     }
-                    .padding(24)
+                    .padding(audio.isTranscribing ? 16 : 24)
                 }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if showsPlaybackBar {
+                    playbackBar
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 12)
+                        .background(ReaderCanvasBackground(themeMode: themeMode))
+                        .zIndex(1)
+                }
+            }
             .onChange(of: accent) { _ in
                 if !EnglishVoiceOption.available(for: accent).contains(where: { $0.identifier == selectedVoiceIdentifier }) {
                     selectedVoiceIdentifier = ""
@@ -126,6 +137,9 @@ struct ContentView: View {
             }
             .onChange(of: audio.isTranscribing) { isTranscribing in
                 if isTranscribing { dismissedTranscriptionNotice = nil }
+            }
+            .onChange(of: themeMode) { mode in
+                ReaderTheme.setMode(mode)
             }
             .onChange(of: speech.isSpeaking) { isSpeaking in
                 // The system synthesizer clears its active word when the final
@@ -187,6 +201,7 @@ struct ContentView: View {
                 }
             }
             .onAppear {
+                ReaderTheme.setMode(themeMode)
                 loadRecentArticles()
                 speed = savedReadingSpeed
                 guard text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -207,10 +222,7 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .tint(ReaderTheme.primary)
-        // This reader uses a deliberately light paper-like canvas. Keeping the
-        // complete split view in light appearance prevents macOS Form labels
-        // from becoming white against that canvas.
-        .preferredColorScheme(.light)
+        .preferredColorScheme(.dark)
         .sheet(isPresented: $isShowingLibrary) {
             NavigationStack {
                 List(recentArticles) { item in
@@ -255,20 +267,80 @@ struct ContentView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .background(ReaderTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(.white.opacity(0.9), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(ReaderTheme.border, lineWidth: 1)
             }
-            .shadow(color: ReaderTheme.primary.opacity(0.10), radius: 14, y: 6)
+            .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
         }
         .frame(height: 84)
+    }
+
+    private var readingOverview: some View {
+        HStack(spacing: 12) {
+            overviewCard(
+                title: "WORDS",
+                value: wordCount.formatted(),
+                note: "文章总词数",
+                symbol: "textformat.abc",
+                accent: ReaderTheme.primary
+            )
+            overviewCard(
+                title: "PROGRESS",
+                value: "\(wordCount == 0 ? 0 : readingCompletedWordCount * 100 / wordCount)%",
+                note: wordCount == 0 ? "开始阅读后更新" : "已读 \(readingCompletedWordCount) / \(wordCount) 词",
+                symbol: "chart.line.uptrend.xyaxis",
+                accent: ReaderTheme.mint
+            )
+            overviewCard(
+                title: "MODE",
+                value: childMode ? "儿童模式" : "自由阅读",
+                note: elevenLabsSpeechConfiguration.provider.title,
+                symbol: childMode ? "figure.and.child.holdinghands" : "speaker.wave.2",
+                accent: ReaderTheme.tertiary
+            )
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func overviewCard(title: String, value: String, note: String, symbol: String, accent: Color) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 7) {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(accent)
+                Text(title)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .tracking(1.1)
+                    .foregroundStyle(ReaderTheme.overviewMuted)
+                Spacer(minLength: 0)
+            }
+            Text(value)
+                .font(.system(size: 23, weight: .semibold))
+                .foregroundStyle(ReaderTheme.canvasText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Text(note)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(ReaderTheme.overviewMuted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ReaderTheme.overviewSurface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(ReaderTheme.overviewBorder, lineWidth: 1)
+        }
     }
 
     private var headerIcon: some View {
         Image(systemName: childMode ? "figure.and.child.holdinghands" : "book.closed.fill")
             .font(.title2.weight(.bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(ReaderTheme.canvasText)
             .frame(width: 52, height: 52)
             .background(ReaderTheme.heroGradient, in: Circle())
             .shadow(color: ReaderTheme.primary.opacity(0.25), radius: 8, y: 4)
@@ -277,7 +349,7 @@ struct ContentView: View {
     private var headerText: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(childMode ? "一起读英语吧！" : "英语伴读")
-                .font(.title3.weight(.bold))
+                .font(.system(size: 28, weight: .semibold))
             Text(lastReadingArticleText.isEmpty ? "粘贴内容，或选择文本、Markdown、音频文件" : "已恢复上次阅读，可从第 \(lastReadingWordIndex + 1) 个词继续")
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -292,7 +364,7 @@ struct ContentView: View {
     private var headerCompactText: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(childMode ? "一起读英语吧！" : "英语伴读")
-                .font(.headline)
+                .font(.system(size: 20, weight: .semibold))
                 .lineLimit(1)
             Text("\(wordCount) 个单词 · \(childMode ? "儿童慢速模式" : "自由阅读模式")")
                 .font(.caption.weight(.medium))
@@ -342,7 +414,7 @@ struct ContentView: View {
             Label("操作", systemImage: "ellipsis.circle")
         }
         .menuStyle(.borderlessButton)
-        .buttonStyle(ReaderFilledButtonStyle())
+        .buttonStyle(ReaderFilledButtonStyle(isBlackTheme: ReaderTheme.isBlackTheme, isProminent: true))
         .accessibilityLabel("文章操作")
     }
 
@@ -353,7 +425,7 @@ struct ContentView: View {
         } label: {
             Label(isEditingText ? "进入阅读" : "编辑文本", systemImage: isEditingText ? "play.circle.fill" : "square.and.pencil")
         }
-        .buttonStyle(ReaderFilledButtonStyle())
+        .buttonStyle(ReaderFilledButtonStyle(isBlackTheme: ReaderTheme.isBlackTheme, isProminent: true))
     }
 
     private var headerSecondaryActions: some View {
@@ -361,13 +433,13 @@ struct ContentView: View {
             Button { isImporting = true } label: {
                 Label("选择文件", systemImage: "doc.badge.plus")
             }
-            .buttonStyle(ReaderOutlinedButtonStyle())
+            .buttonStyle(ReaderOutlinedButtonStyle(isBlackTheme: ReaderTheme.isBlackTheme))
             Menu {
                 Button("自动排版") { text = EnglishTextFormatter.formatArticle(text) }
                 Button(showsChineseTranslation ? "关闭中文" : "显示中文", action: toggleChineseTranslation)
                 Button("最近阅读") { isShowingLibrary = true }
             } label: { Label("更多", systemImage: "ellipsis.circle") }
-            .buttonStyle(ReaderOutlinedButtonStyle())
+            .buttonStyle(ReaderOutlinedButtonStyle(isBlackTheme: ReaderTheme.isBlackTheme))
         }
     }
 
@@ -394,10 +466,10 @@ struct ContentView: View {
                 .allowsHitTesting(false)
             }
         }
-        .background(.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(ReaderTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(ReaderTheme.primary.opacity(0.12), lineWidth: 1)
+                .stroke(ReaderTheme.border, lineWidth: 1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -415,9 +487,9 @@ struct ContentView: View {
                 }
             }
         }
-        .background(.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(ReaderTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(ReaderTheme.primary.opacity(0.14), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(ReaderTheme.border, lineWidth: 1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -469,7 +541,7 @@ struct ContentView: View {
                         Button("重试") {
                             scheduleTranslation(for: text, immediately: true)
                         }
-                        .buttonStyle(ReaderOutlinedButtonStyle())
+                        .buttonStyle(ReaderOutlinedButtonStyle(isBlackTheme: ReaderTheme.isBlackTheme))
                     }
                 }
 
@@ -498,13 +570,13 @@ struct ContentView: View {
         return Text(token.display)
             .font(.system(size: fontSize, design: fontStyle.design))
             .fontWeight(isCurrentlySpoken ? .bold : .regular)
-            .foregroundStyle(hasBeenRead ? Color.blue : Color.primary)
+            .foregroundStyle(isCurrentlySpoken ? ReaderTheme.currentWord : (hasBeenRead ? ReaderTheme.readText : ReaderTheme.canvasText))
             .padding(.horizontal, 2)
             .padding(.vertical, 1)
             .background(
                 isCurrentlySpoken
-                    ? Color.green.opacity(0.60)
-                    : (highlightedTokens.contains(id) ? Color.yellow.opacity(0.65) : Color.clear),
+                    ? ReaderTheme.currentWord.opacity(0.28)
+                    : (highlightedTokens.contains(id) ? ReaderTheme.highlight.opacity(0.20) : Color.clear),
                 in: RoundedRectangle(cornerRadius: 4)
             )
             .scaleEffect(isCurrentlySpoken ? 1.08 : 1.0)
@@ -613,22 +685,22 @@ struct ContentView: View {
                     .accessibilityLabel(loopHint)
             }
             playbackSettingsRow
-            if let footnote = playbackFootnote {
+            if !audio.isTranscribing, let footnote = playbackFootnote {
                 Text(footnote)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(ReaderTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(.white.opacity(0.8), lineWidth: 1)
+                .stroke(ReaderTheme.border, lineWidth: 1)
         }
-        .shadow(color: ReaderTheme.primary.opacity(0.05), radius: 6, y: 2)
+        .shadow(color: .black.opacity(0.16), radius: 10, y: 4)
     }
 
     private var playbackProgressRow: some View {
@@ -800,7 +872,7 @@ struct ContentView: View {
         } label: {
             Label(audio.hasLoop ? "精听 · 循环中" : "精听", systemImage: "repeat")
         }
-        .buttonStyle(ReaderOutlinedButtonStyle())
+        .buttonStyle(ReaderOutlinedButtonStyle(isBlackTheme: ReaderTheme.isBlackTheme))
     }
 
     private var audioPlayButton: some View {
@@ -808,7 +880,7 @@ struct ContentView: View {
             Label(audio.isPlaying ? "暂停音频" : "播放音频", systemImage: audio.isPlaying ? "pause.fill" : "play.fill")
                 .frame(minWidth: 110)
         }
-        .buttonStyle(ReaderFilledButtonStyle())
+        .buttonStyle(ReaderFilledButtonStyle(isBlackTheme: ReaderTheme.isBlackTheme, isProminent: true))
         .disabled(!audio.canControlPlayback)
     }
 
@@ -818,7 +890,7 @@ struct ContentView: View {
         } label: {
             Label(speech.isPaused ? "继续" : "暂停", systemImage: speech.isPaused ? "play.fill" : "pause.fill")
         }
-        .buttonStyle(ReaderOutlinedButtonStyle())
+        .buttonStyle(ReaderOutlinedButtonStyle(isBlackTheme: ReaderTheme.isBlackTheme))
         .disabled(!speech.isSpeaking)
     }
 
@@ -835,7 +907,12 @@ struct ContentView: View {
             Label(textPlayTitle, systemImage: speech.isSpeaking ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 .frame(minWidth: 110)
         }
-        .buttonStyle(ReaderFilledButtonStyle(color: speech.isSpeaking ? .red : ReaderTheme.primary))
+        .buttonStyle(ReaderFilledButtonStyle(
+            isBlackTheme: ReaderTheme.isBlackTheme,
+            isProminent: !speech.isSpeaking,
+            color: speech.isSpeaking ? .red : nil,
+            foregroundColor: speech.isSpeaking ? .white : nil
+        ))
         .disabled(!speech.isSpeaking && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
@@ -847,21 +924,68 @@ struct ContentView: View {
     }
 
     private var playbackSettingsRow: some View {
-        HStack(alignment: .center, spacing: 12) {
-            if audio.hasAudio {
-                Picker("朗读来源", selection: $usesTTSForAudio) {
-                    Text("原音频").tag(false)
-                    Text("TTS 朗读").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .controlSize(.small)
-                .frame(maxWidth: 300)
-                .disabled(audio.isTranscribing || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) {
+                playbackSourceControl
+                Spacer(minLength: 8)
+                playbackRateControl
             }
-            Spacer(minLength: 8)
-            playbackRateControl
+
+            VStack(alignment: .leading, spacing: 8) {
+                playbackSourceControl
+                HStack {
+                    Spacer(minLength: 0)
+                    playbackRateControl
+                }
+            }
         }
-        .frame(minHeight: 26)
+    }
+
+    @ViewBuilder
+    private var playbackSourceControl: some View {
+        if audio.hasAudio {
+            HStack(spacing: 7) {
+                Text("朗读来源")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                if audio.isTranscribing {
+                    Label("原音频", systemImage: "waveform")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                } else {
+                    sourceButton("原音频", usesTTS: false)
+                    sourceButton("TTS 朗读", usesTTS: true)
+                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private func sourceButton(_ title: String, usesTTS: Bool) -> some View {
+        let isSelected = usesTTSForAudio == usesTTS
+        return Button {
+            usesTTSForAudio = usesTTS
+        } label: {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .foregroundStyle(isSelected ? ReaderTheme.canvasText : ReaderTheme.overviewMuted)
+                .background(
+                    isSelected ? ReaderTheme.primary.opacity(0.30) : Color.white.opacity(0.07),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(isSelected ? ReaderTheme.primary.opacity(0.78) : ReaderTheme.border, lineWidth: 1)
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var playbackRateControl: some View {
@@ -872,7 +996,7 @@ struct ContentView: View {
                 speechRateControl
             }
         }
-        .frame(minWidth: 168, idealWidth: 220, maxWidth: 240, alignment: .trailing)
+        .frame(maxWidth: 240, alignment: .trailing)
     }
 
     private var audioRateControl: some View {
@@ -1317,53 +1441,191 @@ private struct AppleTranslationRunner: View {
 }
 #endif
 
-private enum ReaderTheme {
-    static let primary = Color(red: 0.29, green: 0.37, blue: 0.90)
-    static let mint = Color(red: 0.55, green: 0.89, blue: 0.78)
-    static let sunshine = Color(red: 1.00, green: 0.82, blue: 0.36)
-    static let heroGradient = LinearGradient(
-        colors: [Color(red: 0.31, green: 0.40, blue: 0.96), Color(red: 0.60, green: 0.35, blue: 0.92)],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-    static let canvas = LinearGradient(
-        colors: [Color(red: 0.96, green: 0.98, blue: 1.00), Color(red: 1.00, green: 0.97, blue: 0.90)],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
+enum ReaderThemeMode: String, CaseIterable {
+    case classic
+    case black
+}
+
+enum ReaderTheme {
+    static var isBlackTheme: Bool {
+        UserDefaults.standard.string(forKey: "readalongTheme") == ReaderThemeMode.black.rawValue
+    }
+
+    static func setMode(_ rawValue: String) {
+        UserDefaults.standard.set(rawValue, forKey: "readalongTheme")
+    }
+
+    static var primary: Color {
+        isBlackTheme ? Color(red: 0.80, green: 0.70, blue: 0.47) : Color(red: 0.56, green: 0.34, blue: 1.00)
+    }
+    static var mint: Color {
+        isBlackTheme ? Color(red: 0.48, green: 0.68, blue: 0.54) : Color(red: 0.39, green: 0.91, blue: 0.79)
+    }
+    static var sunshine: Color {
+        isBlackTheme ? Color(red: 0.78, green: 0.67, blue: 0.42) : Color(red: 1.00, green: 0.78, blue: 0.40)
+    }
+    static var tertiary: Color {
+        isBlackTheme ? Color(red: 0.62, green: 0.59, blue: 0.75) : Color(red: 0.80, green: 0.52, blue: 1.00)
+    }
+    static var canvasText: Color {
+        isBlackTheme ? Color(red: 0.90, green: 0.90, blue: 0.89) : Color(red: 0.95, green: 0.92, blue: 1.00)
+    }
+    static var readText: Color {
+        isBlackTheme ? Color(red: 0.62, green: 0.63, blue: 0.62) : Color(red: 0.74, green: 0.69, blue: 0.91)
+    }
+    static var currentWord: Color {
+        isBlackTheme ? Color(red: 0.43, green: 0.70, blue: 0.55) : Color(red: 0.42, green: 0.94, blue: 0.77)
+    }
+    static var highlight: Color {
+        isBlackTheme ? Color(red: 0.78, green: 0.67, blue: 0.42) : Color(red: 1.00, green: 0.81, blue: 0.39)
+    }
+    static var surface: Color {
+        isBlackTheme ? Color(red: 0.085, green: 0.085, blue: 0.085) : Color(red: 0.055, green: 0.035, blue: 0.15).opacity(0.88)
+    }
+    static var border: Color {
+        isBlackTheme ? Color.white.opacity(0.105) : Color(red: 0.68, green: 0.49, blue: 1.00).opacity(0.36)
+    }
+    static var overviewMuted: Color {
+        isBlackTheme ? Color.white.opacity(0.56) : Color(red: 0.80, green: 0.76, blue: 0.90)
+    }
+    static var overviewSurface: Color {
+        isBlackTheme ? Color(red: 0.085, green: 0.085, blue: 0.085) : Color(red: 0.075, green: 0.045, blue: 0.19).opacity(0.84)
+    }
+    static var overviewBorder: Color {
+        isBlackTheme ? Color.white.opacity(0.11) : Color(red: 0.66, green: 0.47, blue: 1.00).opacity(0.42)
+    }
+    static var brandSurface: Color {
+        isBlackTheme ? Color.white.opacity(0.09) : Color.white.opacity(0.10)
+    }
+    static var badgeSurface: Color {
+        isBlackTheme ? primary.opacity(0.12) : primary.opacity(0.12)
+    }
+    static var buttonSurface: Color {
+        isBlackTheme ? Color(red: 0.15, green: 0.15, blue: 0.15) : primary
+    }
+    static var buttonText: Color {
+        isBlackTheme ? Color(red: 0.91, green: 0.91, blue: 0.90) : .white
+    }
+    static var heroGradient: LinearGradient {
+        LinearGradient(
+            colors: isBlackTheme
+                ? [Color(red: 0.56, green: 0.52, blue: 0.40), Color(red: 0.35, green: 0.43, blue: 0.36)]
+                : [Color(red: 0.38, green: 0.21, blue: 0.92), Color(red: 0.18, green: 0.45, blue: 0.98)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+    static var canvas: LinearGradient {
+        LinearGradient(
+            colors: isBlackTheme
+                ? [Color(red: 0.055, green: 0.055, blue: 0.055), Color(red: 0.075, green: 0.075, blue: 0.075)]
+                : [Color(red: 0.22, green: 0.055, blue: 0.57), Color(red: 0.075, green: 0.045, blue: 0.25), Color(red: 0.025, green: 0.055, blue: 0.16)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+}
+
+struct ReaderCanvasBackground: View {
+    var themeMode: String
+
+    private var isBlackTheme: Bool {
+        themeMode == ReaderThemeMode.black.rawValue
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                LinearGradient(
+                    colors: isBlackTheme
+                        ? [Color(red: 0.055, green: 0.055, blue: 0.055), Color(red: 0.075, green: 0.075, blue: 0.075)]
+                        : [Color(red: 0.22, green: 0.055, blue: 0.57), Color(red: 0.075, green: 0.045, blue: 0.25), Color(red: 0.025, green: 0.055, blue: 0.16)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                if !isBlackTheme {
+                    let width = geometry.size.width
+                    let height = geometry.size.height
+                    Ellipse()
+                        .fill(LinearGradient(colors: [Color(red: 0.68, green: 0.25, blue: 1.0).opacity(0.75), Color(red: 0.28, green: 0.38, blue: 1.0).opacity(0.32), .clear], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: width * 1.25, height: height * 0.48)
+                        .rotationEffect(.degrees(-18))
+                        .offset(x: -width * 0.12, y: -height * 0.27)
+                        .blur(radius: 58)
+                    Ellipse()
+                        .fill(LinearGradient(colors: [Color(red: 0.12, green: 0.82, blue: 0.78).opacity(0.48), Color(red: 0.22, green: 0.42, blue: 1.0).opacity(0.46), .clear], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: width * 1.1, height: height * 0.38)
+                        .rotationEffect(.degrees(22))
+                        .offset(x: width * 0.20, y: height * 0.13)
+                        .blur(radius: 64)
+                    Ellipse()
+                        .fill(LinearGradient(colors: [Color(red: 0.88, green: 0.30, blue: 0.79).opacity(0.34), .clear], startPoint: .top, endPoint: .bottom))
+                        .frame(width: width * 0.72, height: height * 0.38)
+                        .rotationEffect(.degrees(-28))
+                        .offset(x: width * 0.27, y: -height * 0.23)
+                        .blur(radius: 68)
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+        }
+        .background(Color(red: 0.025, green: 0.02, blue: 0.08))
+    }
 }
 
 /// Explicit button colors keep controls legible in both light and dark system appearances.
 struct ReaderFilledButtonStyle: ButtonStyle {
-    var color: Color = ReaderTheme.primary
+    var isBlackTheme = false
+    var isProminent = false
+    var color: Color? = nil
+    var foregroundColor: Color? = nil
 
     func makeBody(configuration: Configuration) -> some View {
+        let accentFill = Color(red: 0.72, green: 0.61, blue: 0.37)
+        let fill = color ?? (isBlackTheme
+            ? (isProminent ? accentFill : Color(red: 0.145, green: 0.145, blue: 0.145))
+            : Color(red: 0.29, green: 0.37, blue: 0.90))
+        let text = foregroundColor ?? (isBlackTheme && isProminent
+            ? Color(red: 0.10, green: 0.10, blue: 0.10)
+            : (isBlackTheme ? Color(red: 0.93, green: 0.93, blue: 0.92) : .white))
         configuration.label
             .fixedSize(horizontal: true, vertical: false)
-            .fontWeight(.semibold)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
+            .font(.system(size: isBlackTheme ? 13 : 14, weight: isBlackTheme ? .medium : .semibold))
+            .foregroundStyle(text)
+            .padding(.horizontal, isBlackTheme ? 13 : 14)
             .padding(.vertical, 8)
-            .background(color.opacity(configuration.isPressed ? 0.72 : 1), in: Capsule())
-            .contentShape(Capsule())
+            .background(fill.opacity(configuration.isPressed ? 0.78 : 0.96), in: RoundedRectangle(cornerRadius: isBlackTheme ? 9 : 18, style: .continuous))
+            .overlay {
+                if isBlackTheme {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(isProminent ? accentFill.opacity(0.55) : Color.white.opacity(0.24), lineWidth: 1)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: isBlackTheme ? 9 : 18, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
 struct ReaderOutlinedButtonStyle: ButtonStyle {
+    var isBlackTheme = false
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .fixedSize(horizontal: true, vertical: false)
-            .fontWeight(.semibold)
-            .foregroundStyle(ReaderTheme.primary)
+            .font(.system(size: isBlackTheme ? 13 : 14, weight: isBlackTheme ? .medium : .semibold))
+            .foregroundStyle(isBlackTheme ? Color(red: 0.90, green: 0.90, blue: 0.89) : ReaderTheme.primary)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(ReaderTheme.primary.opacity(configuration.isPressed ? 0.22 : 0.12), in: Capsule())
+            .background(isBlackTheme
+                        ? Color.white.opacity(configuration.isPressed ? 0.15 : 0.075)
+                        : ReaderTheme.primary.opacity(configuration.isPressed ? 0.22 : 0.12),
+                        in: RoundedRectangle(cornerRadius: isBlackTheme ? 9 : 18, style: .continuous))
             .overlay {
-                Capsule().stroke(ReaderTheme.primary.opacity(0.75), lineWidth: 1)
+                RoundedRectangle(cornerRadius: isBlackTheme ? 9 : 18, style: .continuous)
+                    .stroke(isBlackTheme ? Color.white.opacity(0.27) : ReaderTheme.primary.opacity(0.75), lineWidth: 1)
             }
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: isBlackTheme ? 9 : 18, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }

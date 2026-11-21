@@ -12,6 +12,7 @@ struct PreferencesView: View {
     @Binding var fontSize: Double
     @Binding var themeMode: String
     @State private var isTTSExpanded = false
+    @State private var isTextDisplayExpanded = false
     @State private var isElevenLabsExpanded = true
     @State private var isUsingCustomDeepgramModel = false
     @State private var isChildModeExpanded = false
@@ -106,7 +107,7 @@ struct PreferencesView: View {
                         .frame(maxWidth: 260, alignment: .leading)
 
                         if elevenLabsSpeechConfiguration.provider == .elevenLabs {
-                            DisclosureGroup("配置 ElevenLabs", isExpanded: $isElevenLabsExpanded) {
+                            DisclosureGroup(isExpanded: $isElevenLabsExpanded) {
                                 VStack(alignment: .leading, spacing: 10) {
                                     settingField("API Key", secureValue: $elevenLabsSpeechConfiguration.apiKey)
                                     settingField("美式 Voice ID", value: $elevenLabsSpeechConfiguration.americanVoiceID)
@@ -126,9 +127,11 @@ struct PreferencesView: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 .padding(.top, 4)
+                            } label: {
+                                disclosureLabel("配置 ElevenLabs", systemImage: "key.fill", isExpanded: $isElevenLabsExpanded)
                             }
                         } else if elevenLabsSpeechConfiguration.provider == .deepgram {
-                            DisclosureGroup("配置 Deepgram", isExpanded: $isElevenLabsExpanded) {
+                            DisclosureGroup(isExpanded: $isElevenLabsExpanded) {
                                 VStack(alignment: .leading, spacing: 10) {
                                     settingField("API Key", secureValue: $elevenLabsSpeechConfiguration.deepgramAPIKey)
                                     Picker("Deepgram 声音", selection: deepgramVoiceSelection) {
@@ -156,6 +159,8 @@ struct PreferencesView: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 .padding(.top, 4)
+                            } label: {
+                                disclosureLabel("配置 Deepgram", systemImage: "waveform", isExpanded: $isElevenLabsExpanded)
                             }
                         } else {
                             Text("英语口音")
@@ -222,11 +227,7 @@ struct PreferencesView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } label: {
-                    Label("TTS 发音", systemImage: "speaker.wave.2.fill")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .onTapGesture { isTTSExpanded.toggle() }
+                    disclosureLabel("TTS 发音", systemImage: "speaker.wave.2.fill", isExpanded: $isTTSExpanded)
                 }
 
             } header: {
@@ -254,8 +255,7 @@ struct PreferencesView: View {
                         .font(.system(size: min(fontSize, 26), design: fontStyle.design))
                         .padding(.vertical, 6)
                 } label: {
-                    Label("文字显示", systemImage: "textformat.size")
-                        .font(.body.weight(.semibold))
+                    disclosureLabel("文字显示", systemImage: "textformat.size", isExpanded: $isTextDisplayExpanded)
                 }
 
                 DisclosureGroup(isExpanded: $isChildModeExpanded) {
@@ -288,8 +288,7 @@ struct PreferencesView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } label: {
-                    Label("儿童模式", systemImage: "figure.and.child.holdinghands")
-                        .font(.body.weight(.semibold))
+                    disclosureLabel("儿童模式", systemImage: "figure.and.child.holdinghands", isExpanded: $isChildModeExpanded)
                 }
 
                 DisclosureGroup(isExpanded: $isAppearanceExpanded) {
@@ -309,8 +308,7 @@ struct PreferencesView: View {
                     }
                     .padding(.top, 4)
                 } label: {
-                    Label("外观与主题", systemImage: "circle.lefthalf.filled")
-                        .font(.body.weight(.semibold))
+                    disclosureLabel("外观与主题", systemImage: "circle.lefthalf.filled", isExpanded: $isAppearanceExpanded)
                 }
 
                 DisclosureGroup(isExpanded: $isLocalWhisperExpanded) {
@@ -319,11 +317,7 @@ struct PreferencesView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 } label: {
-                    Label("本地高精度转写", systemImage: "laptopcomputer")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .onTapGesture { isLocalWhisperExpanded.toggle() }
+                    disclosureLabel("本地高精度转写", systemImage: "laptopcomputer", isExpanded: $isLocalWhisperExpanded)
                 }
 
                 DisclosureGroup(isExpanded: $isAboutExpanded) {
@@ -369,18 +363,12 @@ struct PreferencesView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
                 } label: {
-                    Label("关于与版本信息", systemImage: "info.circle")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                    disclosureLabel("关于与版本信息", systemImage: "info.circle", isExpanded: $isAboutExpanded)
                 }
                     }
                     .padding(.vertical, 4)
                 } label: {
-                    Label("配置", systemImage: "gearshape.2")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                    disclosureLabel("配置", systemImage: "gearshape.2", isExpanded: $isConfigurationExpanded)
                 }
             }
             }
@@ -399,6 +387,18 @@ struct PreferencesView: View {
                 speed = min(max(multiplier * 0.45, 0.18), 0.68)
             }
         )
+    }
+
+    private func disclosureLabel(_ title: String, systemImage: String, isExpanded: Binding<Bool>) -> some View {
+        Button {
+            isExpanded.wrappedValue.toggle()
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.body.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func themeOption(_ title: String, mode: ReaderThemeMode) -> some View {

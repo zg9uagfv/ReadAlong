@@ -18,7 +18,7 @@
 		A1000000000000000000000A /* AudioPlaybackController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* AudioPlaybackController.swift */; };
 		A1000000000000000000000B /* LocalWhisperService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* LocalWhisperService.swift */; };
 		A1000000000000000000000C /* ElevenLabsSpeech.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* ElevenLabsSpeech.swift */; };
-		A1000000000000000000000D /* whisper-worker.py in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* whisper-worker.py */; };
+		A1000000000000000000000D /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = A90000000000000000000001 /* WhisperKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -35,14 +35,13 @@
 		A2000000000000000000000B /* AudioPlaybackController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlaybackController.swift; sourceTree = "<group>"; };
 		A2000000000000000000000C /* LocalWhisperService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWhisperService.swift; sourceTree = "<group>"; };
 		A2000000000000000000000D /* ElevenLabsSpeech.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ElevenLabsSpeech.swift; sourceTree = "<group>"; };
-		A2000000000000000000000E /* whisper-worker.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "whisper-worker.py"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A30000000000000000000001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
-			files = ();
+			files = (A1000000000000000000000D /* WhisperKit in Frameworks */,);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -71,7 +70,6 @@
 				A2000000000000000000000B /* AudioPlaybackController.swift */,
 				A2000000000000000000000C /* LocalWhisperService.swift */,
 				A2000000000000000000000D /* ElevenLabsSpeech.swift */,
-				A2000000000000000000000E /* whisper-worker.py */,
 			);
 			path = ReadAlong;
 			sourceTree = "<group>";
@@ -96,7 +94,7 @@
 			buildRules = ();
 			dependencies = ();
 			name = ReadAlong;
-			packageProductDependencies = ();
+			packageProductDependencies = (A90000000000000000000001 /* WhisperKit */,);
 			productName = ReadAlong;
 			productReference = A20000000000000000000005 /* ReadAlong.app */;
 			productType = "com.apple.product-type.application";
@@ -121,7 +119,7 @@
 			productRefGroup = A40000000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-			packageReferences = ();
+			packageReferences = (A90000000000000000000002 /* XCRemoteSwiftPackageReference \"argmax-oss-swift\" */,);
 			targets = (A50000000000000000000001 /* ReadAlong */);
 		};
 /* End PBXProject section */
@@ -132,7 +130,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000004 /* Assets.xcassets in Resources */,
-				A1000000000000000000000D /* whisper-worker.py in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -217,6 +214,22 @@
 		A60000000000000000000001 /* Build configuration list for PBXProject */ = {isa = XCConfigurationList; buildConfigurations = (A80000000000000000000001, A80000000000000000000002); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		A60000000000000000000002 /* Build configuration list for PBXNativeTarget */ = {isa = XCConfigurationList; buildConfigurations = (A80000000000000000000003, A80000000000000000000004); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A90000000000000000000002 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift";
+			requirement = { kind = upToNextMajorVersion; minimumVersion = 1.0.0; };
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A90000000000000000000001 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A90000000000000000000002 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
+			productName = WhisperKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A70000000000000000000001 /* Project object */;
 }

@@ -1335,20 +1335,17 @@ struct ContentView: View {
                 )
                 speech.stop()
                 if usesLocalWhisper {
-                    audio.beginTranscription(status: "正在使用本地 Whisper 高精度转写…")
+                    audio.beginTranscription(status: "正在使用本地高精度转写…")
                     let requestID = localWhisperRequestID
                     localWhisperTask = Task {
                         do {
-                            try await LocalWhisperService.transcribe(url: url, configuration: configuration) { chunk, completed, total in
-                                guard localWhisperRequestID == requestID else { return }
-                                audio.appendWhisperChunk(chunk, completed: completed, total: total)
-                            }
+                            let transcription = try await LocalWhisperService.backend.transcribe(audioURL: url)
                             guard localWhisperRequestID == requestID else { return }
-                            audio.finishTranscription(status: audio.transcriptionText.isEmpty ? "未识别到语音内容" : nil)
+                            audio.apply(transcription: transcription)
                         } catch {
                             guard localWhisperRequestID == requestID, !(error is CancellationError) else { return }
-                            audio.finishTranscription(status: "本地 Whisper 转写失败")
-                            errorMessage = "本地 Whisper 转写失败：\(transcriptionErrorMessage(error))"
+                            audio.startSystemTranscription(url: url, localeIdentifier: accent.languageCode)
+                            errorMessage = "本地高精度转写失败，已改用系统语音识别。系统结果可能没有精确的逐词同步。\n\n\(transcriptionErrorMessage(error))"
                         }
                     }
                 }

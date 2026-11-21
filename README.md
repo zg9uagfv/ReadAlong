@@ -87,62 +87,11 @@ scripts/package-make.sh install   # 生成后安装到 /Applications（需要管
 
 选择“Deepgram”后，填入 Deepgram API Key，并从 Aura-2 英语声音预设中选择声音，或手动填写模型 / Voice ID。API Key 保存在系统钥匙串；朗读文本会发送至 Deepgram 并消耗账户额度。Deepgram 当前不提供逐词时间戳和词间停顿，儿童模式下会按自然语流分段合成；连接或合成失败时会提示并改用系统语音。
 
-## 本地 Whisper 部署（macOS / Apple Silicon）
+## 本地高精度转写
 
-本地转写使用 `whispermlx` 的 MLX 运行时；适合 M 系列芯片。新设备推荐使用仓库内的一键脚本（会安装运行时、对齐数据、默认高精度模型，构建并启动 macOS Debug 版）：
+macOS 使用 WhisperKit 在应用内完成本地高精度转写。首次使用会自动下载模型，不需要安装 Python、配置运行时路径或下载对齐数据。若本地转写失败，ReadAlong 会自动改用系统语音识别；系统结果可能没有精确的逐词同步。
 
-```bash
-git clone <仓库地址> ReadAlong
-cd ReadAlong
-./scripts/setup-local-whisper.sh
-```
-
-默认模型为 `mlx-community/whisper-large-v3-turbo`，会下载约 1.6GB 权重。仅准备运行时而暂不下载模型，可使用：
-
-```bash
-./scripts/setup-local-whisper.sh --skip-model
-```
-
-脚本完成后会显示需要填入应用偏好的 Python 路径。若需要手动部署或使用自定义模型，执行以下步骤：
-
-```bash
-python3 -m venv "$HOME/.local/share/readalong-whisper"
-"$HOME/.local/share/readalong-whisper/bin/pip" install --upgrade pip
-"$HOME/.local/share/readalong-whisper/bin/pip" install whispermlx
-```
-
-WhisperMLX 的逐词对齐还需要 NLTK 的 `punkt_tab` 数据：
-
-```bash
-"$HOME/.local/share/readalong-whisper/bin/python" -m nltk.downloader punkt_tab
-```
-
-如果电脑通过可信代理联网，NLTK 可能拒绝代理下载。确认代理可信后，可只为这一次下载运行：
-
-```bash
-NLTK_ALLOW_PROXIED_URLOPEN=1 \
-  "$HOME/.local/share/readalong-whisper/bin/python" -m nltk.downloader punkt_tab
-```
-
-然后在应用的“偏好设置 → 本地 Whisper”中：
-
-1. 勾选“优先使用本地 Whisper”。
-2. 模型名填写 `mlx-community/whisper-large-v3-turbo`（高精度推荐）；首次运行会自动下载模型。
-3. Python / Whisper 运行时填写虚拟环境中的 Python 路径，例如：
-   `~/.local/share/readalong-whisper/bin/python`。
-4. 模型目录可留空，或填写自定义的模型缓存目录。
-
-`whisper-large-v3-turbo` 权重约 1.6GB。M1/M2 且 24GB 统一内存的 MacBook 适合单文件高精度转写；首次下载和长音频推理需要较长时间。长音频会按约 60 秒分段转写：第一段有可读文本后即可阅读、播放和拖动进度，剩余部分在后台继续识别并追加，同时保留逐词时间戳用于进度同步。
-
-### 本地 Whisper 排错
-
-- `Python / Whisper 运行时路径为空`：在偏好中填入虚拟环境的 `bin/python`。
-- `No module named whispermlx`：确认在同一个虚拟环境内执行过 `pip install whispermlx`。
-- `punkt_tab` 缺失：按上面的 NLTK 命令下载数据；标准位置为 `~/nltk_data`。
-- `socksio` 或 SOCKS 代理错误：应用会清除子进程的代理变量。若仍需通过代理下载模型，请在终端中先完成模型下载。
-- 文本暂时为空：高精度模型在下载或推理时只会在完成后返回最终结果；应用会同时显示系统识别的预览，完成后自动替换。
-
-macOS 的优先级是：已启用的本地 Whisper → 系统语音识别。iPad 不支持启动本地 Python 进程，使用系统语音识别。
+iPad 使用系统语音识别。
 
 ## 开发说明
 

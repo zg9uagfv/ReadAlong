@@ -314,17 +314,12 @@ struct PreferencesView: View {
                 }
 
                 DisclosureGroup(isExpanded: $isLocalWhisperExpanded) {
-                    Toggle("优先使用本地 Whisper（仅 macOS）", isOn: $localWhisperConfiguration.localWhisperEnabled)
-                    if localWhisperConfiguration.localWhisperEnabled {
-                        TextField("模型名", text: $localWhisperConfiguration.localWhisperModel)
-                        TextField("模型目录（可选）", text: $localWhisperConfiguration.localWhisperModelDirectory)
-                        TextField("Python / Whisper 运行时路径", text: $localWhisperConfiguration.localWhisperPythonPath)
-                    }
-                    Text("MacBook 上可配置例如 whisper-large-v3-turbo；iPad 使用系统语音识别。运行时路径需指向已安装 whispermlx 的 Python。")
+                    Toggle("使用本地高精度转写（仅 macOS）", isOn: $localWhisperConfiguration.localWhisperEnabled)
+                    Text("首次使用会下载所需模型。若本地转写失败，应用会自动改用系统语音识别；系统结果可能没有精确的逐词同步。")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 } label: {
-                    Label("本地 Whisper", systemImage: "laptopcomputer")
+                    Label("本地高精度转写", systemImage: "laptopcomputer")
                         .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())

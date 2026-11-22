@@ -1,0 +1,11 @@
+Command:
+`opencode run --auto --model local-vllm/Qwen3.8-27B` (dispatching the scoped macOS AppIcon metadata task)
+
+Observed output:
+`Error: Server process exited with code 130`
+`at map (native:1:11)`
+`at <anonymous> (/$bunfs/root/opencode:1206:36240)`
+`at service.ensure (/$bunfs/root/opencode:4042:571)`
+`at service.ensure (definition) (/$bunfs/root/opencode:1206:34885)`
+`at cli.server-connection.resolve (/$bunfs/root/opencode:4294:476)`
+`at cli.server-connection.resolve (definition) (/$bunfs/root/opencode:4041:4356)`

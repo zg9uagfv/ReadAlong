@@ -497,12 +497,34 @@ struct ContentView: View {
     @ViewBuilder
     private var readingContent: some View {
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            VStack(spacing: 12) {
-                Image(systemName: "text.book.closed").font(.largeTitle).foregroundStyle(.secondary)
-                Text("没有文章").font(.headline)
-                Text("请切换到编辑模式输入内容或选择文件").foregroundStyle(.secondary)
+            VStack(spacing: 16) {
+                Image(systemName: "text.book.closed")
+                    .font(.system(size: 42, weight: .light))
+                    .foregroundStyle(ReaderTheme.primary)
+                VStack(spacing: 6) {
+                    Text("开始一次英语伴读")
+                        .font(.title3.weight(.semibold))
+                    Text("粘贴英文，或导入文章和音频。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 10) {
+                    Button {
+                        isEditingText = true
+                    } label: {
+                        Label("粘贴或输入文本", systemImage: "text.cursor")
+                    }
+                    .buttonStyle(ReaderFilledButtonStyle(isBlackTheme: ReaderTheme.isBlackTheme, isProminent: true))
+
+                    Button {
+                        isImporting = true
+                    } label: {
+                        Label("选择文件", systemImage: "doc.badge.plus")
+                    }
+                    .buttonStyle(ReaderOutlinedButtonStyle(isBlackTheme: ReaderTheme.isBlackTheme))
+                }
             }
-            .frame(maxWidth: .infinity, minHeight: 260)
+            .frame(maxWidth: .infinity, minHeight: 320)
         } else {
             LazyVStack(alignment: .leading, spacing: max(8, fontSize * 0.42)) {
                 ForEach(readingSentences.indices, id: \.self) { sentenceIndex in

@@ -19,7 +19,6 @@ struct PreferencesView: View {
     @State private var isLocalWhisperExpanded = false
     @State private var isAboutExpanded = false
     @State private var isAppearanceExpanded = false
-    @State private var isConfigurationExpanded = false
 
     private let deepgramVoicePresets: [DeepgramVoicePreset] = [
         .init(id: "aura-2-thalia-en", name: "Thalia · 清晰、有活力"),
@@ -235,8 +234,6 @@ struct PreferencesView: View {
             }
 
             Section {
-                DisclosureGroup(isExpanded: $isConfigurationExpanded) {
-                    VStack(alignment: .leading, spacing: 12) {
                 DisclosureGroup {
                     Picker("字体", selection: $fontStyle) {
                         ForEach(DisplayFontStyle.allCases) { style in
@@ -364,11 +361,6 @@ struct PreferencesView: View {
                     .padding(.vertical, 4)
                 } label: {
                     disclosureLabel("关于与版本信息", systemImage: "info.circle", isExpanded: $isAboutExpanded)
-                }
-                    }
-                    .padding(.vertical, 4)
-                } label: {
-                    disclosureLabel("配置", systemImage: "gearshape.2", isExpanded: $isConfigurationExpanded)
                 }
             }
             }
